@@ -1,23 +1,23 @@
 //! 组合请求器模块
 //!
-//! 提供 CompositeFetcher，可以组合多个 HttpClient，
-//! 按优先级依次尝试，直到成功或全部失败。
+//! 提供 CompositeFetcher，可以按优先级依次尝试多个 HttpClient，直到成功或全部失败。
 
 use std::collections::HashMap;
 
 use async_trait::async_trait;
 use tracing::{info, warn};
 
-use crate::client::HttpClient;
-use crate::error::{CollyError, Result};
-use crate::response::Response;
+use crawlkit_core::client::HttpClient;
+use crawlkit_core::error::{CrawlError, Result};
+use crawlkit_core::response::Response;
 
-/// 组合请求器：依次尝试多个请求器
+/// 组合请求器：依次尝试多个客户端，实现故障转移
 ///
-/// # 示例
-/// ```rust,no_run
-/// use crawlkit::client::ReqwestClient;
-/// use crawlkit::fetcher::CompositeFetcher;
+/// 需要传入实现了 `HttpClient` trait 的客户端（如 `ReqwestClient`）。
+///
+/// ```ignore
+/// use crawlkit_fetcher::CompositeFetcher;
+/// use crawlkit_fetcher_reqwest::ReqwestClient;
 ///
 /// let fetcher = CompositeFetcher::new(vec![
 ///     Box::new(ReqwestClient::new()),
@@ -33,19 +33,14 @@ impl CompositeFetcher {
         Self { fetchers }
     }
 
-    /// 依次尝试各请求器获取内容
+    /// 依次尝试各请求器直到成功
     pub async fn get(&self, url: &str, headers: &HashMap<String, String>) -> Result<Response> {
         let mut last_error = None;
         for fetcher in &self.fetchers {
             info!("尝试使用 {} 获取: {}", fetcher.name(), url);
             match fetcher.get(url, headers).await {
                 Ok(response) => {
-                    info!(
-                        "{} 获取成功: {} ({} bytes)",
-                        fetcher.name(),
-                        url,
-                        response.body.len()
-                    );
+                    info!("{} 获取成功: {} ({} bytes)", fetcher.name(), url, response.body.len());
                     return Ok(response);
                 }
                 Err(e) => {
@@ -54,10 +49,38 @@ impl CompositeFetcher {
                 }
             }
         }
-        Err(CollyError::AllFetchersFailed(
+        Err(CrawlError::AllFetchersFailed(
             last_error
                 .map(|e| e.to_string())
-                .unwrap_or_else(|| "无请求器".to_string()),
+                .unwrap_or_else(|| "无可用请求器".to_string()),
+        ))
+    }
+
+    /// 依次尝试各请求器发送 POST
+    pub async fn post(
+        &self,
+        url: &str,
+        headers: &HashMap<String, String>,
+        body: Vec<u8>,
+    ) -> Result<Response> {
+        let mut last_error = None;
+        for fetcher in &self.fetchers {
+            info!("尝试使用 {} 发送 POST: {}", fetcher.name(), url);
+            match fetcher.post(url, headers, body.clone()).await {
+                Ok(response) => {
+                    info!("{} POST 成功: {} ({} bytes)", fetcher.name(), url, response.body.len());
+                    return Ok(response);
+                }
+                Err(e) => {
+                    warn!("{} POST 失败: {}", fetcher.name(), e);
+                    last_error = Some(e);
+                }
+            }
+        }
+        Err(CrawlError::AllFetchersFailed(
+            last_error
+                .map(|e| e.to_string())
+                .unwrap_or_else(|| "无可用请求器".to_string()),
         ))
     }
 
@@ -72,11 +95,10 @@ impl CompositeFetcher {
     }
 }
 
-/// 实现 HttpClient trait，使 CompositeFetcher 可以作为普通客户端使用
 #[async_trait]
 impl HttpClient for CompositeFetcher {
     async fn get(&self, url: &str, headers: &HashMap<String, String>) -> Result<Response> {
-        self.get(url, headers).await
+        CompositeFetcher::get(self, url, headers).await
     }
 
     async fn post(
@@ -85,30 +107,7 @@ impl HttpClient for CompositeFetcher {
         headers: &HashMap<String, String>,
         body: Vec<u8>,
     ) -> Result<Response> {
-        let mut last_error = None;
-        for fetcher in &self.fetchers {
-            info!("尝试使用 {} 发送 POST: {}", fetcher.name(), url);
-            match fetcher.post(url, headers, body.clone()).await {
-                Ok(response) => {
-                    info!(
-                        "{} POST 成功: {} ({} bytes)",
-                        fetcher.name(),
-                        url,
-                        response.body.len()
-                    );
-                    return Ok(response);
-                }
-                Err(e) => {
-                    warn!("{} POST 失败: {}", fetcher.name(), e);
-                    last_error = Some(e);
-                }
-            }
-        }
-        Err(CollyError::AllFetchersFailed(
-            last_error
-                .map(|e| e.to_string())
-                .unwrap_or_else(|| "无请求器".to_string()),
-        ))
+        CompositeFetcher::post(self, url, headers, body).await
     }
 
     fn name(&self) -> &str {
@@ -160,7 +159,9 @@ mod tests {
                     body: body.clone(),
                 })
             } else {
-                Err(anyhow::anyhow!("{}", self.error.as_deref().unwrap_or("error")).into())
+                Err(CrawlError::Http(
+                    self.error.as_deref().unwrap_or("模拟错误").to_string(),
+                ))
             }
         }
 
@@ -186,33 +187,27 @@ mod tests {
         ];
         let composite = CompositeFetcher::new(fetchers);
 
-        let result = composite
-            .get("http://test.com", &HashMap::new())
-            .await
-            .unwrap();
+        let result = composite.get("http://test.com", &HashMap::new()).await.unwrap();
         assert_eq!(result.body, "content from m1");
     }
 
     #[tokio::test]
     async fn test_composite_fetcher_fallback() {
         let fetchers: Vec<Box<dyn HttpClient>> = vec![
-            Box::new(MockClient::fail("m1", "error")),
+            Box::new(MockClient::fail("m1", "失败")),
             Box::new(MockClient::success("m2", "content from m2")),
         ];
         let composite = CompositeFetcher::new(fetchers);
 
-        let result = composite
-            .get("http://test.com", &HashMap::new())
-            .await
-            .unwrap();
+        let result = composite.get("http://test.com", &HashMap::new()).await.unwrap();
         assert_eq!(result.body, "content from m2");
     }
 
     #[tokio::test]
     async fn test_composite_fetcher_all_fail() {
         let fetchers: Vec<Box<dyn HttpClient>> = vec![
-            Box::new(MockClient::fail("m1", "error1")),
-            Box::new(MockClient::fail("m2", "error2")),
+            Box::new(MockClient::fail("m1", "错误1")),
+            Box::new(MockClient::fail("m2", "错误2")),
         ];
         let composite = CompositeFetcher::new(fetchers);
 

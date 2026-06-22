@@ -1,0 +1,14 @@
+[package]
+name = "crawlkit-fetcher-wreq"
+version = "0.2.0"
+edition = "2021"
+description = "crawlkit 基于 wreq 的 HTTP 客户端实现（TLS 指纹模拟）"
+
+[dependencies]
+crawlkit-core = { path = "../crawlkit-core" }
+async-trait = "0.1"
+wreq = { version = "=6.0.0-rc.29", features = ["json", "gzip", "brotli", "deflate", "zstd", "cookies"] }
+wreq-util = { version = "=3.0.0-rc.13", features = ["emulation"] }
+backon = "1.5"
+anyhow = "1"
+tracing = "0.1"

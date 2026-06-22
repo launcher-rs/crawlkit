@@ -1,0 +1,45 @@
+[package]
+name = "crawlkit"
+version = "0.2.0"
+edition = "2021"
+description = "crawlkit Rust 爬虫工具包 — 集成入口（facade crate）"
+
+[dependencies]
+crawlkit-core = { path = "../crawlkit-core" }
+crawlkit-fetcher = { path = "../crawlkit-fetcher" }
+crawlkit-fetcher-reqwest = { path = "../crawlkit-fetcher-reqwest", optional = true }
+crawlkit-fetcher-wreq = { path = "../crawlkit-fetcher-wreq", optional = true }
+crawlkit-parser = { path = "../crawlkit-parser" }
+tokio = { version = "1", features = ["full"] }
+anyhow = "1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+[features]
+default = ["fetcher-reqwest"]
+fetcher-reqwest = ["crawlkit-fetcher-reqwest"]
+fetcher-wreq = ["crawlkit-fetcher-wreq"]
+
+[[example]]
+name = "callback"
+path = "examples/callback.rs"
+
+[[example]]
+name = "extract_article"
+path = "examples/extract_article.rs"
+
+[[example]]
+name = "batch_crawl"
+path = "examples/batch_crawl.rs"
+
+[[example]]
+name = "custom_client"
+path = "examples/custom_client.rs"
+
+[[example]]
+name = "readability"
+path = "examples/readability.rs"
+
+[[example]]
+name = "composite_fetcher"
+path = "examples/composite_fetcher.rs"

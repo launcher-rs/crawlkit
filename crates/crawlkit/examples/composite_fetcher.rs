@@ -4,8 +4,7 @@
 
 use std::collections::HashMap;
 
-use crawlkit::client::ReqwestClient;
-use crawlkit::fetcher::CompositeFetcher;
+use crawlkit::{CompositeFetcher, ReqwestClient};
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {

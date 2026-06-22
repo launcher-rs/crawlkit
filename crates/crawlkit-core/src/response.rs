@@ -1,10 +1,10 @@
-//! 响应类型
+//! HTTP 响应封装
 
 use std::collections::HashMap;
 
 /// 统一的 HTTP 响应结构
 ///
-/// 无论底层用 reqwest 还是 wreq，都转换为此类型
+/// 无论底层使用 reqwest、wreq 还是 Chrome，都统一转换为该类型。
 #[derive(Debug, Clone)]
 pub struct Response {
     /// 最终请求的 URL（可能经过重定向）

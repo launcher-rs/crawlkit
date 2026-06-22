@@ -8,7 +8,7 @@ use crawlkit::Collector;
 
 #[tokio::main]
 async fn main() {
-    let c = Collector::new();
+    let c = Collector::reqwest();
 
     // 先提取链接
     match c.get_links("https://news.ycombinator.com/", "a.titlelink").await {

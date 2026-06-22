@@ -1,46 +1,10 @@
-[package]
-name = "crawlkit"
-version = "0.1.0"
-edition = "2021"
-description = "一个受 Go colly 启发的 Rust 爬虫工具包"
-
-[dependencies]
-reqwest = { version = "0.13", features = ["json","query", "gzip", "brotli", "deflate", "zstd"] }
-scraper = "0.22"
-url = "2"
-anyhow = "1"
-thiserror = "2"
-async-trait = "0.1"
-tokio = { version = "1", features = ["full"] }
-serde = { version = "1", features = ["derive"] }
-regex = "1"
-
-# 从 frontier_matrix_bot 集成的新依赖
-dom_smoothie = "0.18.0"              # DOM树操作和可读性提取
-backon = "1.5"                        # 重试和退避策略
-tracing = "0.1"                       # 结构化日志
-serde_json = "1"                      # JSON支持
-
-[[example]]
-name = "callback"
-path = "examples/callback.rs"
-
-[[example]]
-name = "extract_article"
-path = "examples/extract_article.rs"
-
-[[example]]
-name = "batch_crawl"
-path = "examples/batch_crawl.rs"
-
-[[example]]
-name = "custom_client"
-path = "examples/custom_client.rs"
-
-[[example]]
-name = "readability"
-path = "examples/readability.rs"
-
-[[example]]
-name = "composite_fetcher"
-path = "examples/composite_fetcher.rs"
+[workspace]
+members = [
+    "crates/crawlkit-core",
+    "crates/crawlkit-fetcher",
+    "crates/crawlkit-fetcher-reqwest",
+    "crates/crawlkit-parser",
+    "crates/crawlkit",
+    "crates/crawlkit-fetcher-wreq",
+]
+resolver = "2"

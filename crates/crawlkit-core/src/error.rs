@@ -1,19 +1,21 @@
-//! 错误类型定义
+//! 框架统一的错误类型定义
 
 use thiserror::Error;
 
 /// 框架统一错误类型
+///
+/// 覆盖 HTTP 请求、URL 解析、HTML 解析、回调执行等场景。
 #[derive(Error, Debug)]
-pub enum CollyError {
-    /// HTTP 请求错误
+pub enum CrawlError {
+    /// HTTP 请求失败
     #[error("HTTP 请求失败: {0}")]
-    Http(#[from] reqwest::Error),
+    Http(String),
 
-    /// URL 解析错误
+    /// URL 解析失败
     #[error("URL 解析失败: {0}")]
     Url(#[from] url::ParseError),
 
-    /// HTML 解析错误
+    /// HTML 解析失败
     #[error("HTML 解析失败: {0}")]
     Html(String),
 
@@ -42,10 +44,5 @@ pub enum CollyError {
     AllFetchersFailed(String),
 }
 
-pub type Result<T> = std::result::Result<T, CollyError>;
-
-impl From<anyhow::Error> for CollyError {
-    fn from(err: anyhow::Error) -> Self {
-        CollyError::Callback(err.to_string())
-    }
-}
+/// 框架统一的 Result 别名
+pub type Result<T> = std::result::Result<T, CrawlError>;

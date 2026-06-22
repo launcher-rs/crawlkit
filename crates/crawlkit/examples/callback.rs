@@ -8,7 +8,7 @@ use crawlkit::Collector;
 
 #[tokio::main]
 async fn main() {
-    let mut c = Collector::new();
+    let mut c = Collector::reqwest();
     c.set_header("Accept-Language", "zh-CN,zh;q=0.9,en;q=0.8");
 
     // 请求前回调：打印即将访问的 URL

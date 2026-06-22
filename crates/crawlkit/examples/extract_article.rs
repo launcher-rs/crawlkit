@@ -8,7 +8,7 @@ use crawlkit::Collector;
 
 #[tokio::main]
 async fn main() {
-    let c = Collector::new();
+    let c = Collector::reqwest();
 
     let url = "https://news.ycombinator.com/news";
     match c.get_article(url).await {

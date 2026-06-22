@@ -1,81 +1,54 @@
-//! HTTP 客户端抽象层
-//!
-//! 核心 trait `HttpClient` 定义了所有 HTTP 客户端必须实现的接口。
-//! 默认提供 `ReqwestClient` 实现，支持代理配置和重试机制。
-//! 用户可自行替换为 wreq、ureq 等。
+//! 基于 wreq 的 HTTP 客户端实现
 
 use async_trait::async_trait;
 use backon::{ExponentialBuilder, Retryable};
-use reqwest::Client;
 use std::collections::HashMap;
 use std::env;
 use std::time::Duration;
 
-use crate::error::Result;
-use crate::response::Response;
+use wreq::Client;
 
-/// HTTP 客户端 trait —— 所有请求后端的统一接口
+use crawlkit_core::client::HttpClient;
+use crawlkit_core::error::{CrawlError, Result};
+use crawlkit_core::response::Response;
+
+/// 基于 wreq 的 HTTP 客户端
 ///
-/// 实现此 trait 即可接入框架，例如：
-/// - `ReqwestClient`（默认）
-/// - `WreqClient`（wreq 封装）
-/// - 自定义 mock 实现用于测试
-#[async_trait]
-pub trait HttpClient: Send + Sync {
-    /// 发送 GET 请求并返回统一的 Response
-    async fn get(&self, url: &str, headers: &HashMap<String, String>) -> Result<Response>;
-
-    /// 发送 POST 请求
-    async fn post(
-        &self,
-        url: &str,
-        headers: &HashMap<String, String>,
-        body: Vec<u8>,
-    ) -> Result<Response>;
-
-    /// 返回客户端名称，用于日志/调试
-    fn name(&self) -> &str;
-}
-
-/// 默认 HTTP 客户端，基于 reqwest
+/// wreq 是 reqwest 的硬分叉，支持 TLS 指纹模拟（JA3/JA4/Akamai）、
+/// 代理配置、指数退避重试等功能。
 ///
-/// 支持以下功能：
-/// - 代理配置（通过环境变量 PROXY_URL, PROXY_USER, PROXY_PASS）
-/// - 指数退避重试
-/// - 可配置超时时间
-pub struct ReqwestClient {
+/// 可通过 `wreq_util` 设置浏览器指纹模拟（如 Chrome、Firefox、Safari 等）。
+pub struct WreqClient {
     inner: Client,
-    /// 客户端标识名称
     name: String,
-    /// 最大重试次数
     max_retries: usize,
 }
 
-impl ReqwestClient {
-    /// 创建默认配置的 ReqwestClient
+impl WreqClient {
+    /// 创建默认配置的客户端
     pub fn new() -> Self {
-        Self::builder().build().expect("Failed to create reqwest client")
+        Self::builder().build().expect("创建 wreq 客户端失败")
     }
 
-    /// 自定义配置构建
-    pub fn builder() -> ReqwestClientBuilder {
-        ReqwestClientBuilder::default()
+    /// 获取配置构建器
+    pub fn builder() -> WreqClientBuilder {
+        WreqClientBuilder::default()
     }
 
-    /// 获取底层 reqwest::Client（用于高级用法）
+    /// 获取底层 wreq::Client 引用
     pub fn inner(&self) -> &Client {
         &self.inner
     }
 }
 
-impl Default for ReqwestClient {
+impl Default for WreqClient {
     fn default() -> Self {
         Self::new()
     }
 }
 
 #[async_trait]
-impl HttpClient for ReqwestClient {
+impl HttpClient for WreqClient {
     async fn get(&self, url: &str, headers: &HashMap<String, String>) -> Result<Response> {
         let client = self.inner.clone();
         let url_owned = url.to_owned();
@@ -94,7 +67,7 @@ impl HttpClient for ReqwestClient {
                 .iter()
                 .map(|(k, v)| (k.to_string(), v.to_str().unwrap_or("").to_string()))
                 .collect();
-            let url = resp.url().clone();
+            let url = resp.uri().to_string();
             let body = resp.text().await?;
             Ok::<_, anyhow::Error>(Response {
                 url: url.to_string(),
@@ -107,7 +80,7 @@ impl HttpClient for ReqwestClient {
         fetch
             .retry(&ExponentialBuilder::default().with_max_times(max_retries))
             .await
-            .map_err(|e| anyhow::anyhow!("reqwest 请求失败(重试{}次): {}", max_retries, e).into())
+            .map_err(|e| CrawlError::Http(format!("wreq GET 请求失败(重试{max_retries}次): {e}")))
     }
 
     async fn post(
@@ -119,7 +92,7 @@ impl HttpClient for ReqwestClient {
         let client = self.inner.clone();
         let url_owned = url.to_owned();
         let headers_owned = headers.clone();
-        let body_owned = body.clone();
+        let body_owned = body;
         let max_retries = self.max_retries;
 
         let fetch = || async {
@@ -134,7 +107,7 @@ impl HttpClient for ReqwestClient {
                 .iter()
                 .map(|(k, v)| (k.to_string(), v.to_str().unwrap_or("").to_string()))
                 .collect();
-            let url = resp.url().clone();
+            let url = resp.uri().to_string();
             let body = resp.text().await?;
             Ok::<_, anyhow::Error>(Response {
                 url: url.to_string(),
@@ -147,7 +120,7 @@ impl HttpClient for ReqwestClient {
         fetch
             .retry(&ExponentialBuilder::default().with_max_times(max_retries))
             .await
-            .map_err(|e| anyhow::anyhow!("reqwest 请求失败(重试{}次): {}", max_retries, e).into())
+            .map_err(|e| CrawlError::Http(format!("wreq POST 请求失败(重试{max_retries}次): {e}")))
     }
 
     fn name(&self) -> &str {
@@ -155,9 +128,8 @@ impl HttpClient for ReqwestClient {
     }
 }
 
-/// ReqwestClient 构建器，支持链式配置
-#[derive(Default)]
-pub struct ReqwestClientBuilder {
+/// WreqClient 构建器，支持链式配置
+pub struct WreqClientBuilder {
     timeout: Option<Duration>,
     user_agent: Option<String>,
     name: String,
@@ -165,10 +137,26 @@ pub struct ReqwestClientBuilder {
     proxy_url: Option<String>,
     proxy_user: Option<String>,
     proxy_pass: Option<String>,
+    emulation: Option<wreq_util::Emulation>,
 }
 
-impl ReqwestClientBuilder {
-    /// 设置请求超时时间
+impl Default for WreqClientBuilder {
+    fn default() -> Self {
+        Self {
+            timeout: None,
+            user_agent: None,
+            name: String::new(),
+            max_retries: None,
+            proxy_url: None,
+            proxy_user: None,
+            proxy_pass: None,
+            emulation: None,
+        }
+    }
+}
+
+impl WreqClientBuilder {
+    /// 设置请求超时
     pub fn timeout(mut self, d: Duration) -> Self {
         self.timeout = Some(d);
         self
@@ -210,30 +198,49 @@ impl ReqwestClientBuilder {
         self
     }
 
-    /// 构建 ReqwestClient
-    pub fn build(self) -> Result<ReqwestClient> {
+    /// 设置浏览器指纹模拟
+    ///
+    /// 使用 `wreq_util` 提供的预定义浏览器配置（Chrome、Firefox、Safari 等），
+    /// 可自定义 TLS 指纹/HTTP2/请求头。
+    ///
+    /// # 示例
+    /// ```rust,ignore
+    /// use wreq_util::{Emulation, Profile};
+    ///
+    /// WreqClient::builder()
+    ///     .emulation(Emulation::builder()
+    ///         .profile(Profile::Chrome120)
+    ///         .build())
+    ///     .build()?;
+    /// ```
+    pub fn emulation(mut self, emulation: wreq_util::Emulation) -> Self {
+        self.emulation = Some(emulation);
+        self
+    }
+
+    /// 构建 WreqClient
+    pub fn build(self) -> Result<WreqClient> {
         let mut builder = Client::builder();
 
-        // 设置超时时间
         let timeout = self.timeout.unwrap_or(Duration::from_secs(30));
         builder = builder.timeout(timeout);
 
-        // 设置 User-Agent
         let user_agent = self
             .user_agent
-            .unwrap_or_else(|| "crawlkit/0.1.0".to_string());
+            .unwrap_or_else(|| "crawlkit/0.2.0".to_string());
         builder = builder.user_agent(user_agent);
 
-        // 配置重定向策略
-        builder = builder.redirect(reqwest::redirect::Policy::limited(10));
+        if let Some(emu) = self.emulation {
+            builder = builder.emulation(emu);
+        }
 
-        // 配置连接池
+        builder = builder.redirect(wreq::redirect::Policy::limited(10));
         builder = builder.pool_idle_timeout(Duration::from_secs(90));
         builder = builder.tcp_keepalive(Duration::from_secs(60));
 
         // 配置代理（优先使用构建器参数，其次使用环境变量）
         let proxy_url = self.proxy_url.or_else(|| env::var("PROXY_URL").ok());
-        if let Some(proxy_url) = proxy_url {
+        if let Some(ref url) = proxy_url {
             let proxy_user = self
                 .proxy_user
                 .or_else(|| env::var("PROXY_USER").ok())
@@ -242,20 +249,30 @@ impl ReqwestClientBuilder {
                 .proxy_pass
                 .or_else(|| env::var("PROXY_PASS").ok())
                 .unwrap_or_default();
-            let proxy = reqwest::Proxy::all(&proxy_url)?
-                .basic_auth(&proxy_user, &proxy_pass);
+
+            // 根据 URL 协议选择代理类型
+            let proxy = if url.starts_with("https") {
+                wreq::Proxy::https(url)
+            } else {
+                wreq::Proxy::http(url)
+            }
+            .map_err(|e| CrawlError::Config(format!("代理配置失败: {e}")))?;
+
+            let proxy = proxy.basic_auth(&proxy_user, &proxy_pass);
             builder = builder.proxy(proxy);
         }
 
-        let inner = builder.build()?;
+        let inner = builder
+            .build()
+            .map_err(|e| CrawlError::Config(format!("构建 wreq 客户端失败: {e}")))?;
         let name = if self.name.is_empty() {
-            "reqwest".into()
+            "wreq".into()
         } else {
             self.name
         };
         let max_retries = self.max_retries.unwrap_or(3);
 
-        Ok(ReqwestClient {
+        Ok(WreqClient {
             inner,
             name,
             max_retries,
