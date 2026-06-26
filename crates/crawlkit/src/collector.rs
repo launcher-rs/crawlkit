@@ -38,7 +38,7 @@ type ErrorCallback = Box<dyn Fn(&dyn std::error::Error) + Send + Sync>;
 ///
 /// #[tokio::main]
 /// async fn main() {
-///     let mut c = Collector::reqwest();
+///     let mut c = Collector::new();
 ///     c.on_request(|req| println!("请求: {}", req.url));
 ///     c.visit("https://example.com").await.unwrap();
 /// }
@@ -82,6 +82,14 @@ pub struct Collector {
 }
 
 impl Collector {
+    /// 使用默认后端构建 Collector
+    ///
+    /// 等价于 [`Collector::reqwest()`]。需要启用 `fetcher-reqwest` feature（默认启用）。
+    #[cfg(feature = "fetcher-reqwest")]
+    pub fn new() -> Self {
+        Self::reqwest()
+    }
+
     /// 使用 reqwest 后端构建 Collector
     ///
     /// 需要启用 `fetcher-reqwest` feature（默认启用）。

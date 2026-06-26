@@ -16,7 +16,7 @@
 //!
 //! #[tokio::main]
 //! async fn main() {
-//!     let mut c = Collector::reqwest();
+//!     let mut c = Collector::new();
 //!     c.on_request(|req| {
 //!         println!("即将请求: {}", req.url);
 //!     });
