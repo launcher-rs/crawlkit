@@ -6,6 +6,7 @@ use reqwest::Client;
 use std::collections::HashMap;
 use std::env;
 use std::time::Duration;
+use tracing::{debug, instrument, warn};
 
 use crawlkit_core::client::HttpClient;
 use crawlkit_core::error::{CrawlError, Result};
@@ -49,7 +50,9 @@ impl Default for ReqwestClient {
 
 #[async_trait]
 impl HttpClient for ReqwestClient {
+    #[instrument(skip(self, headers), fields(name = %self.name))]
     async fn get(&self, url: &str, headers: &HashMap<String, String>) -> Result<Response> {
+        debug!(url, "开始 GET 请求");
         let client = self.inner.clone();
         let url_owned = url.to_owned();
         let headers_owned = headers.clone();
@@ -86,20 +89,26 @@ impl HttpClient for ReqwestClient {
             })
         };
 
-        fetch
+        let result = fetch
             .retry(&ExponentialBuilder::default().with_max_times(max_retries))
-            .await
-            .map_err(|e| {
-                CrawlError::Http(format!("reqwest GET 请求失败(重试{max_retries}次): {e}"))
-            })
+            .await;
+        match &result {
+            Ok(resp) => debug!(status = resp.status, body_len = resp.body.len(), "GET 请求成功"),
+            Err(e) => warn!(error = %e, "GET 请求失败（已重试 {max_retries} 次）"),
+        }
+        result.map_err(|e| {
+            CrawlError::Http(format!("reqwest GET 请求失败(重试{max_retries}次): {e}"))
+        })
     }
 
+    #[instrument(skip(self, headers, body), fields(name = %self.name))]
     async fn post(
         &self,
         url: &str,
         headers: &HashMap<String, String>,
         body: Vec<u8>,
     ) -> Result<Response> {
+        debug!(url, body_len = body.len(), "开始 POST 请求");
         let client = self.inner.clone();
         let url_owned = url.to_owned();
         let headers_owned = headers.clone();
@@ -137,12 +146,16 @@ impl HttpClient for ReqwestClient {
             })
         };
 
-        fetch
+        let result = fetch
             .retry(&ExponentialBuilder::default().with_max_times(max_retries))
-            .await
-            .map_err(|e| {
-                CrawlError::Http(format!("reqwest POST 请求失败(重试{max_retries}次): {e}"))
-            })
+            .await;
+        match &result {
+            Ok(resp) => debug!(status = resp.status, body_len = resp.body.len(), "POST 请求成功"),
+            Err(e) => warn!(error = %e, "POST 请求失败（已重试 {max_retries} 次）"),
+        }
+        result.map_err(|e| {
+            CrawlError::Http(format!("reqwest POST 请求失败(重试{max_retries}次): {e}"))
+        })
     }
 
     fn name(&self) -> &str {

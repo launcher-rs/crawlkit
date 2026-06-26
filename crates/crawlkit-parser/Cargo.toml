@@ -10,3 +10,7 @@ scraper = "0.22"
 dom_smoothie = "0.18.0"
 url = "2"
 skyscraper = "0.6"
+tracing = "0.1"
+
+[lints]
+workspace = true

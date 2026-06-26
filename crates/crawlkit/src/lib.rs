@@ -41,5 +41,6 @@ pub mod html {
 }
 
 pub mod collector;
+pub mod log;
 
 pub use collector::Collector;

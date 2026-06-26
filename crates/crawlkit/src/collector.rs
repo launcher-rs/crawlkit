@@ -7,6 +7,7 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
 use anyhow::Result;
+use tracing::{debug, instrument, warn};
 
 use crawlkit_core::client::HttpClient;
 use crawlkit_core::request::Request;
@@ -182,6 +183,7 @@ impl Collector {
     /// → 执行 on_response → 如果是 HTML 则执行 on_html
     /// → 若启用 follow_links 则递归访问提取的链接
     pub async fn visit(&mut self, url: &str) -> Result<()> {
+        debug!(url, "开始访问");
         let mut req = Request::get(url);
         for (k, v) in &self.default_headers {
             req.headers.insert(k.clone(), v.clone());
@@ -190,30 +192,37 @@ impl Collector {
     }
 
     /// 内部请求执行核心逻辑
+    #[instrument(skip(self, req), fields(url = %req.url))]
     async fn do_request(&mut self, req: &mut Request) -> Result<()> {
         // 检查是否已访问
         {
             let visited = self.visited.lock().unwrap();
             if visited.contains(&req.url) && !req.allow_revisit {
+                debug!("跳过已访问的 URL");
                 return Ok(());
             }
         }
 
         // 执行 on_request 回调
         if let Some(ref cb) = self.on_request {
+            debug!("执行 on_request 回调");
             cb(req);
         }
 
         // 发送 HTTP 请求
+        debug!("发送 HTTP 请求");
         let response = match self.http_client.get(&req.url, &req.headers).await {
             Ok(resp) => resp,
             Err(e) => {
+                warn!(error = %e, "HTTP 请求失败");
                 if let Some(ref cb) = self.on_error {
                     cb(&e);
                 }
                 return Err(e.into());
             }
         };
+
+        debug!(status = response.status, body_len = response.body.len(), "收到响应");
 
         // 标记已访问
         {
@@ -223,12 +232,14 @@ impl Collector {
 
         // 执行 on_response 回调
         if let Some(ref cb) = self.on_response {
+            debug!("执行 on_response 回调");
             cb(&response);
         }
 
         // HTML 内容处理
         if response.is_html() {
             if let Some(ref cb) = self.on_html {
+                debug!("执行 on_html 回调");
                 cb(&response.body, &response.url);
             }
 
@@ -241,6 +252,7 @@ impl Collector {
                     &response.url,
                 )?;
 
+                debug!(count = abs_links.len(), "提取到子链接，开始递归访问");
                 for link in abs_links {
                     let mut child_req = Request::get(&link);
                     for (k, v) in &self.default_headers {
@@ -262,49 +274,56 @@ impl Collector {
     ///
     /// 不触发回调，直接返回绝对 URL 列表。
     pub async fn get_links(&self, url: &str, selector: &str) -> Result<Vec<String>> {
+        debug!(url, selector, "提取链接");
         let mut req = Request::get(url);
         for (k, v) in &self.default_headers {
             req.headers.insert(k.clone(), v.clone());
         }
         let response = self.http_client.get(url, &req.headers).await?;
-        extract_absolute_links(
+        let links = extract_absolute_links(
             &response.body,
             selector,
             LinkSelectorType::Css,
             &response.url,
-        )
-        .map_err(Into::into)
+        )?;
+        debug!(count = links.len(), "提取到链接");
+        Ok(links)
     }
 
     /// 使用 XPath 提取页面中所有匹配的链接
     ///
     /// 不触发回调，直接返回绝对 URL 列表。
     pub async fn get_links_by_xpath(&self, url: &str, selector: &str) -> Result<Vec<String>> {
+        debug!(url, selector, "使用 XPath 提取链接");
         let mut req = Request::get(url);
         for (k, v) in &self.default_headers {
             req.headers.insert(k.clone(), v.clone());
         }
         let response = self.http_client.get(url, &req.headers).await?;
-        extract_absolute_links(
+        let links = extract_absolute_links(
             &response.body,
             selector,
             LinkSelectorType::Xpath,
             &response.url,
-        )
-        .map_err(Into::into)
+        )?;
+        debug!(count = links.len(), "提取到链接");
+        Ok(links)
     }
 
     /// 一步提取文章内容
     ///
     /// 不触发回调，直接返回 Article 结构。
     pub async fn get_article(&self, url: &str) -> Result<Article> {
+        debug!(url, "提取文章");
         let response = self.http_client.get(url, &self.default_headers).await?;
         let article = extract_article(&response.body, &response.url);
+        debug!(title = %article.title, "文章提取完成");
         Ok(article)
     }
 
     /// 批量并发抓取文章
     pub async fn get_articles(&self, urls: &[String]) -> Vec<Result<Article>> {
+        debug!(count = urls.len(), "开始批量抓取文章");
         let mut handles = Vec::new();
         let client = self.http_client.clone();
         let headers = self.default_headers.clone();
@@ -338,6 +357,8 @@ impl Collector {
                 Err(e) => results.push(Err(anyhow::anyhow!("任务 panicked: {e}"))),
             }
         }
+        let success = results.iter().filter(|r| r.is_ok()).count();
+        debug!(total = urls.len(), success, "批量抓取完成");
         results
     }
 

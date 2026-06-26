@@ -12,7 +12,7 @@ async fn main() {
 
     // 先提取链接
     match c
-        .get_links("https://news.ycombinator.com/", "a.titlelink")
+        .get_links("https://news.ycombinator.com/", ".titleline > a")
         .await
     {
         Ok(links) => {

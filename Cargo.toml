@@ -8,3 +8,48 @@ members = [
     "crates/crawlkit-fetcher-wreq",
 ]
 resolver = "2"
+
+[workspace.lints.clippy]
+# 使用 pedantic 组合作为基线（整体 warn）
+pedantic = { level = "warn", priority = -1 }
+
+# 允许部分过于严格的 pedantic lints
+module_name_repetitions = "allow"
+must_use_candidate = "allow"
+missing_errors_doc = "allow"
+missing_panics_doc = "allow"
+doc_markdown = "allow"
+single_match_else = "allow"
+if_not_else = "allow"
+needless_pass_by_value = "allow"
+return_self_not_must_use = "allow"
+option_if_let_else = "allow"
+manual_let_else = "allow"
+struct_excessive_bools = "allow"
+similar_names = "allow"
+too_many_lines = "allow"
+too_many_arguments = "allow"
+fn_params_excessive_bools = "allow"
+wildcard_imports = "allow"
+module_inception = "allow"
+cast_possible_truncation = "allow"
+cast_sign_loss = "allow"
+
+# 额外启用的高质量 lints
+unwrap_used = "warn"
+expect_used = "warn"
+panic = "warn"
+unimplemented = "warn"
+todo = "warn"
+print_stdout = "warn"
+print_stderr = "warn"
+dbg_macro = "warn"
+exit = "warn"
+get_unwrap = "warn"
+string_to_string = "warn"
+redundant_closure_for_method_calls = "warn"
+items_after_statements = "warn"
+
+[workspace.lints.rust]
+# 禁止 unsafe 代码
+unsafe_code = "forbid"

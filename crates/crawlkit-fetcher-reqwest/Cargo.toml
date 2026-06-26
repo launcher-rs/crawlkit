@@ -11,3 +11,7 @@ reqwest = { version = "0.13", features = ["json", "gzip", "brotli", "deflate", "
 backon = "1.5"
 anyhow = "1"
 rand = "0.8"
+tracing = "0.1"
+
+[lints]
+workspace = true
