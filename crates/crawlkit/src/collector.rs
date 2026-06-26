@@ -373,6 +373,11 @@ impl Collector {
             }
         }
 
+        // 合并客户端默认请求头（如 User-Agent），确保 on_request 回调可见
+        for (k, v) in self.http_client.default_headers() {
+            req.headers.entry(k).or_insert(v);
+        }
+
         // 执行 on_request 回调
         if let Some(ref cb) = self.on_request {
             debug!("执行 on_request 回调");
@@ -444,7 +449,7 @@ impl Collector {
                                     .map(|(k, v)| (k.local.to_string(), v.to_string()))
                                     .collect();
                                 let html_str = element_ref.html();
-                                let element = Element::new(&response.url, text, attrs, html_str);
+                                let element = Element::new(&req.url, text, attrs, html_str);
                                 cb(&element);
                             }
                         }
@@ -470,7 +475,7 @@ impl Collector {
                                                 let element = xpath_item_to_element(
                                                     item,
                                                     &tree,
-                                                    &response.url,
+                                                    &req.url,
                                                 );
                                                 if let Some(el) = element {
                                                     cb(&el);

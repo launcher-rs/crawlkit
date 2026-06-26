@@ -31,4 +31,12 @@ pub trait HttpClient: Send + Sync {
 
     /// 返回客户端名称（用于日志/调试）
     fn name(&self) -> &str;
+
+    /// 返回客户端默认请求头（如 User-Agent）
+    ///
+    /// Collector 会在调用 `on_request` 回调前将这些默认头合并到请求中，
+    /// 确保回调能完整看到所有将要发送的请求头。
+    fn default_headers(&self) -> HashMap<String, String> {
+        HashMap::new()
+    }
 }

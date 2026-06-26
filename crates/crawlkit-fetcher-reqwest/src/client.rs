@@ -70,15 +70,6 @@ impl HttpClient for ReqwestClient {
             for (k, v) in &headers_owned {
                 req = req.header(k.as_str(), v.as_str());
             }
-            if !has_user_agent(&headers_owned) {
-                req = if let Some(ua) = &self.user_agent {
-                    req.header("User-Agent", ua)
-                } else if self.random_user_agent {
-                    req.header("User-Agent", random_desktop_user_agent())
-                } else {
-                    req
-                };
-            }
             let resp = req.send().await?;
             let status = resp.status().as_u16();
             let response_headers: HashMap<String, String> = resp
@@ -127,15 +118,6 @@ impl HttpClient for ReqwestClient {
             for (k, v) in &headers_owned {
                 req = req.header(k.as_str(), v.as_str());
             }
-            if !has_user_agent(&headers_owned) {
-                req = if let Some(ua) = &self.user_agent {
-                    req.header("User-Agent", ua)
-                } else if self.random_user_agent {
-                    req.header("User-Agent", random_desktop_user_agent())
-                } else {
-                    req
-                };
-            }
             let resp = req.send().await?;
             let status = resp.status().as_u16();
             let response_headers: HashMap<String, String> = resp
@@ -167,6 +149,16 @@ impl HttpClient for ReqwestClient {
 
     fn name(&self) -> &str {
         &self.name
+    }
+
+    fn default_headers(&self) -> HashMap<String, String> {
+        let mut headers = HashMap::new();
+        if let Some(ref ua) = self.user_agent {
+            headers.insert("User-Agent".to_string(), ua.clone());
+        } else if self.random_user_agent {
+            headers.insert("User-Agent".to_string(), random_desktop_user_agent().to_string());
+        }
+        headers
     }
 }
 
@@ -286,6 +278,7 @@ impl ReqwestClientBuilder {
     }
 }
 
+#[cfg(test)]
 fn has_user_agent(headers: &HashMap<String, String>) -> bool {
     headers
         .keys()
