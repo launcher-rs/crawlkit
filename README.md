@@ -8,6 +8,7 @@
 - **回调驱动**：类似 colly 的 OnHTML / OnRequest / OnResponse 模式
 - **异步就绪**：基于 tokio + async-trait，支持并发爬取
 - **智能内容提取**：支持 Readability 模式和 CSS 选择器提取
+- **结构化日志**：内置 tracing 支持，方便调试
 
 ## 快速开始
 
@@ -24,9 +25,13 @@ async fn main() {
 }
 ```
 
-## 功能示例
+## 回调系统
 
-### 回调模式
+`Collector` 提供四个核心回调，按请求生命周期依次触发：
+
+### `on_request` — 请求前
+
+在每次 HTTP 请求发送前调用。可修改请求头、记录日志、注入认证信息等。
 
 ```rust
 use crawlkit::Collector;
@@ -34,12 +39,91 @@ use crawlkit::Collector;
 #[tokio::main]
 async fn main() {
     let mut c = Collector::new();
-    c.on_request(|req| println!("请求: {}", req.url));
-    c.on_response(|resp| println!("响应: {}", resp.status));
-    c.on_html(|html, url| println!("收到 HTML: {} ({} bytes)", url, html.len()));
+
+    // 修改请求头
+    c.on_request(|req| {
+        req.headers.insert("Authorization".into(), "Bearer token".into());
+        println!("[请求] {} {}", req.method, req.url);
+    });
+
     c.visit("https://example.com").await.unwrap();
 }
 ```
+
+**回调签名**: `Fn(&mut Request)` — 可变引用，允许修改请求。
+
+### `on_response` — 响应后
+
+收到 HTTP 响应后调用（无论状态码）。可用于记录状态码、统计耗时等。
+
+```rust
+c.on_response(|resp| {
+    println!("[响应] {} - {} bytes", resp.status, resp.body.len());
+});
+```
+
+**回调签名**: `Fn(&Response)` — 不可变引用。
+
+### `on_html` — HTML 解析后
+
+当响应为 HTML 内容时调用。可用于提取链接、解析文章等。
+
+```rust
+c.on_html(|html, url| {
+    println!("[HTML] {} - {} bytes", url, html.len());
+});
+```
+
+**回调签名**: `Fn(&str, &str)` — (html_body, page_url)。
+
+### `on_error` — 错误处理
+
+请求失败时调用。可用于记录错误、触发告警等。
+
+```rust
+c.on_error(|err| {
+    eprintln!("[错误] {}", err);
+});
+```
+
+**回调签名**: `Fn(&dyn std::error::Error)`。
+
+### 完整回调示例
+
+```rust
+use crawlkit::Collector;
+
+#[tokio::main]
+async fn main() {
+    let mut c = Collector::new();
+
+    c.on_request(|req| {
+        println!("[请求] {} {}", req.method, req.url);
+    });
+
+    c.on_response(|resp| {
+        println!("[响应] {} - {}", resp.status, resp.url);
+    });
+
+    c.on_html(|html, url| {
+        println!("[HTML] {} - {} bytes", url, html.len());
+    });
+
+    c.on_error(|err| {
+        eprintln!("[错误] {}", err);
+    });
+
+    c.visit("https://example.com").await.unwrap();
+}
+```
+
+### 回调注意事项
+
+- 每种回调只能注册一个，重复注册会覆盖前一个
+- 回调按顺序执行：`on_request` → HTTP 请求 → `on_response` → `on_html`（HTML 时）
+- 错误发生时仅触发 `on_error`，不会触发 `on_response`
+
+## 功能示例
 
 ### 提取文章
 
@@ -76,6 +160,25 @@ async fn main() -> anyhow::Result<()> {
 }
 ```
 
+### 链接跟踪
+
+```rust
+use crawlkit::Collector;
+
+#[tokio::main]
+async fn main() -> anyhow::Result<()> {
+    let mut c = Collector::new();
+    c.set_follow_links(true);
+    c.set_max_depth(2);               // 最大递归深度
+    c.set_max_concurrency(8);         // 最大并发数
+    c.on_html(|html, url| {
+        println!("访问: {}", url);
+    });
+    c.visit("https://example.com").await?;
+    Ok(())
+}
+```
+
 ### 可读性提取
 
 ```rust
@@ -85,18 +188,16 @@ let html = r#"<html><body><article><p>长文本内容...</p></article></body></h
 let content = html::extract_readable_content(html)?;
 ```
 
-### 组合请求器
+### 组合请求器（故障转移）
 
 ```rust
-use std::collections::HashMap;
-use crawlkit::client::ReqwestClient;
-use crawlkit::fetcher::CompositeFetcher;
+use crawlkit::{CompositeFetcher, ReqwestClient};
 
 let client1 = ReqwestClient::builder().name("primary").build()?;
 let client2 = ReqwestClient::builder().name("fallback").build()?;
 
 let fetcher = CompositeFetcher::new(vec![Box::new(client1), Box::new(client2)]);
-let response = fetcher.get("https://example.com", &HashMap::new()).await?;
+// 按顺序尝试 client1 → client2
 ```
 
 ### 代理配置
@@ -121,6 +222,20 @@ let client = ReqwestClient::builder()
     .build()?;
 ```
 
+### 日志配置
+
+```rust
+// 默认 info 级别
+crawlkit::log::init();
+
+// 使用环境变量控制
+// RUST_LOG=crawlkit=debug cargo run --example callback
+crawlkit::log::init_with_env();
+
+// 强制 debug 级别
+crawlkit::log::init_debug();
+```
+
 ## API 参考
 
 ### 核心类型
@@ -130,9 +245,26 @@ let client = ReqwestClient::builder()
 | `Collector` | 爬虫核心调度器 |
 | `HttpClient` | HTTP 客户端 trait |
 | `ReqwestClient` | 默认 HTTP 客户端（基于 reqwest） |
+| `WreqClient` | TLS 指纹模拟客户端（基于 wreq） |
 | `CompositeFetcher` | 组合请求器，支持多客户端故障转移 |
 | `Request` | 请求封装 |
-| `Response` | 响应封装 |
+| `Response` | 响应回调 |
+
+### Collector 方法
+
+| 方法 | 说明 |
+|------|------|
+| `new()` / `reqwest()` | 使用 reqwest 后端构建 |
+| `wreq()` | 使用 wreq 后端构建 |
+| `with_client()` | 使用自定义 HttpClient |
+| `visit()` | 访问指定 URL |
+| `get_links()` | 提取页面链接 |
+| `get_article()` | 提取文章内容 |
+| `get_articles()` | 批量并发抓取文章 |
+| `on_request()` | 注册请求前回调 |
+| `on_response()` | 注册响应回调 |
+| `on_html()` | 注册 HTML 回调 |
+| `on_error()` | 注册错误回调 |
 
 ### HTML 工具
 
