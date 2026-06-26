@@ -95,6 +95,18 @@ impl<'a> Element<'a> {
         &self.html
     }
 
+    /// 将属性值解析为绝对 URL
+    ///
+    /// 根据页面 URL 解析相对路径：
+    /// - `/docs/` → `https://example.com/docs/`
+    /// - `https://full.com/path` → 不变
+    pub fn absolute_url(&self, attr_name: &str) -> Option<String> {
+        let value = self.attr(attr_name)?;
+        let page_url = url::Url::parse(self.url).ok()?;
+        let resolved = page_url.join(value).ok()?;
+        Some(resolved.to_string())
+    }
+
     /// 获取匹配指定 CSS 选择器的第一个子元素的文本
     ///
     /// 类似 go-colly 的 `Element.ChildText(selector)`
@@ -1166,5 +1178,30 @@ mod tests {
         assert!(attrs.iter().any(|(k, v)| k == "href" && v == "/link"));
         assert!(attrs.iter().any(|(k, v)| k == "class" && v == "nav"));
         assert!(attrs.iter().any(|(k, v)| k == "id" && v == "main"));
+    }
+
+    #[tokio::test]
+    async fn test_element_absolute_url() {
+        let result = Arc::new(Mutex::new(Vec::<String>::new()));
+        let result_clone = Arc::clone(&result);
+
+        let html = r#"<html><body>
+            <a href="/docs/">Docs</a>
+            <a href="https://github.com/user/repo">GitHub</a>
+            <a href="../relative">Relative</a>
+        </body></html>"#;
+        let mut c = Collector::with_client(MockClient::ok(html));
+        c.on_html_element("a", move |e| {
+            if let Some(abs) = e.absolute_url("href") {
+                result_clone.lock().unwrap().push(abs);
+            }
+        });
+        c.visit("http://test.com").await.unwrap();
+
+        let urls = result.lock().unwrap();
+        assert_eq!(urls.len(), 3);
+        assert_eq!(urls[0], "http://test.com/docs/");
+        assert_eq!(urls[1], "https://github.com/user/repo");
+        assert_eq!(urls[2], "http://test.com/relative");
     }
 }
