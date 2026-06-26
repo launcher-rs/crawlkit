@@ -1204,4 +1204,28 @@ mod tests {
         assert_eq!(urls[1], "https://github.com/user/repo");
         assert_eq!(urls[2], "http://test.com/relative");
     }
+
+    #[tokio::test]
+    async fn test_on_xml_element_has_href() {
+        let result = Arc::new(Mutex::new(Vec::<(String, String, String)>::new()));
+        let result_clone = Arc::clone(&result);
+
+        let html = r#"<html><body>
+            <a href="/docs/">Docs</a>
+            <a href="/articles/">Articles</a>
+        </body></html>"#;
+        let mut c = Collector::with_client(MockClient::ok(html));
+        c.on_xml_element("//a", move |e| {
+            let href = e.attr("href").unwrap_or("").to_string();
+            let abs = e.absolute_url("href").unwrap_or_default();
+            let text = e.text().to_string();
+            result_clone.lock().unwrap().push((href, abs, text));
+        });
+        c.visit("http://test.com").await.unwrap();
+
+        let results = result.lock().unwrap();
+        assert_eq!(results.len(), 2);
+        assert_eq!(results[0], ("/docs/".to_string(), "http://test.com/docs/".to_string(), "Docs".to_string()));
+        assert_eq!(results[1], ("/articles/".to_string(), "http://test.com/articles/".to_string(), "Articles".to_string()));
+    }
 }
