@@ -11,6 +11,8 @@ use crawlkit_core::client::HttpClient;
 use crawlkit_core::error::{CrawlError, Result};
 use crawlkit_core::response::Response;
 
+use crate::user_agent::random_desktop_user_agent;
+
 /// 默认 HTTP 客户端，基于 reqwest
 ///
 /// 支持代理配置、指数退避重试、可配置超时等功能。
@@ -18,6 +20,8 @@ pub struct ReqwestClient {
     inner: Client,
     name: String,
     max_retries: usize,
+    user_agent: Option<String>,
+    random_user_agent: bool,
 }
 
 impl ReqwestClient {
@@ -55,6 +59,15 @@ impl HttpClient for ReqwestClient {
             let mut req = client.get(&url_owned);
             for (k, v) in &headers_owned {
                 req = req.header(k.as_str(), v.as_str());
+            }
+            if !has_user_agent(&headers_owned) {
+                req = if let Some(ua) = &self.user_agent {
+                    req.header("User-Agent", ua)
+                } else if self.random_user_agent {
+                    req.header("User-Agent", random_desktop_user_agent())
+                } else {
+                    req
+                };
             }
             let resp = req.send().await?;
             let status = resp.status().as_u16();
@@ -98,6 +111,15 @@ impl HttpClient for ReqwestClient {
             for (k, v) in &headers_owned {
                 req = req.header(k.as_str(), v.as_str());
             }
+            if !has_user_agent(&headers_owned) {
+                req = if let Some(ua) = &self.user_agent {
+                    req.header("User-Agent", ua)
+                } else if self.random_user_agent {
+                    req.header("User-Agent", random_desktop_user_agent())
+                } else {
+                    req
+                };
+            }
             let resp = req.send().await?;
             let status = resp.status().as_u16();
             let response_headers: HashMap<String, String> = resp
@@ -133,6 +155,7 @@ impl HttpClient for ReqwestClient {
 pub struct ReqwestClientBuilder {
     timeout: Option<Duration>,
     user_agent: Option<String>,
+    random_user_agent: Option<bool>,
     name: String,
     max_retries: Option<usize>,
     proxy_url: Option<String>,
@@ -150,6 +173,14 @@ impl ReqwestClientBuilder {
     /// 设置 User-Agent
     pub fn user_agent(mut self, ua: &str) -> Self {
         self.user_agent = Some(ua.to_string());
+        self
+    }
+
+    /// 设置是否为每次请求随机选择桌面浏览器 User-Agent
+    ///
+    /// 如果已经通过 `user_agent` 设置固定值，则固定值优先。
+    pub fn random_user_agent(mut self, enabled: bool) -> Self {
+        self.random_user_agent = Some(enabled);
         self
     }
 
@@ -190,10 +221,10 @@ impl ReqwestClientBuilder {
         let timeout = self.timeout.unwrap_or(Duration::from_secs(30));
         builder = builder.timeout(timeout);
 
-        let user_agent = self
-            .user_agent
-            .unwrap_or_else(|| "crawlkit/0.2.0".to_string());
-        builder = builder.user_agent(user_agent);
+        let random_user_agent = self.random_user_agent.unwrap_or(true);
+        if !random_user_agent {
+            builder = builder.user_agent("crawlkit/0.2.0");
+        }
 
         builder = builder.redirect(reqwest::redirect::Policy::limited(10));
         builder = builder.pool_idle_timeout(Duration::from_secs(90));
@@ -229,6 +260,30 @@ impl ReqwestClientBuilder {
             inner,
             name,
             max_retries,
+            user_agent: self.user_agent,
+            random_user_agent,
         })
+    }
+}
+
+fn has_user_agent(headers: &HashMap<String, String>) -> bool {
+    headers
+        .keys()
+        .any(|key| key.eq_ignore_ascii_case("user-agent"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn has_user_agent_is_case_insensitive() {
+        let mut headers = HashMap::new();
+        headers.insert("user-agent".to_string(), "test".to_string());
+        assert!(has_user_agent(&headers));
+
+        headers.clear();
+        headers.insert("User-Agent".to_string(), "test".to_string());
+        assert!(has_user_agent(&headers));
     }
 }

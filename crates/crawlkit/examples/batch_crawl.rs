@@ -11,7 +11,10 @@ async fn main() {
     let c = Collector::reqwest();
 
     // 先提取链接
-    match c.get_links("https://news.ycombinator.com/", "a.titlelink").await {
+    match c
+        .get_links("https://news.ycombinator.com/", "a.titlelink")
+        .await
+    {
         Ok(links) => {
             println!("发现 {} 个新闻链接", links.len());
             // 只抓取前 3 篇（避免过多请求）

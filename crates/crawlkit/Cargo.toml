@@ -15,6 +15,10 @@ anyhow = "1"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 
+[dev-dependencies]
+async-trait = "0.1"
+reqwest = { version = "0.13", features = ["json", "gzip", "brotli", "deflate", "zstd"] }
+
 [features]
 default = ["fetcher-reqwest"]
 fetcher-reqwest = ["crawlkit-fetcher-reqwest"]
@@ -43,3 +47,15 @@ path = "examples/readability.rs"
 [[example]]
 name = "composite_fetcher"
 path = "examples/composite_fetcher.rs"
+
+[[example]]
+name = "custom_jina_client"
+path = "examples/custom_jina_client.rs"
+
+[[example]]
+name = "custom_firecrawl_client"
+path = "examples/custom_firecrawl_client.rs"
+
+[[example]]
+name = "custom_service_fallback"
+path = "examples/custom_service_fallback.rs"

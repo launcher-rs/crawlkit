@@ -15,7 +15,7 @@ use crawlkit_core::response::Response;
 use crawlkit_fetcher_reqwest::ReqwestClient;
 #[cfg(feature = "fetcher-wreq")]
 use crawlkit_fetcher_wreq::WreqClient;
-use crawlkit_parser::html::{extract_article, extract_links, resolve_url, Article};
+use crawlkit_parser::html::{extract_absolute_links, extract_article, Article, LinkSelectorType};
 
 /// 回调函数类型别名
 type RequestCallback = Box<dyn Fn(&mut Request) + Send + Sync>;
@@ -64,6 +64,9 @@ pub struct Collector {
     /// 链接选择器（配合 follow_links 使用）
     link_selector: String,
 
+    /// 链接选择器类型
+    link_selector_type: LinkSelectorType,
+
     /// 最大并发数（0 = 不限制）
     max_concurrency: usize,
 }
@@ -100,13 +103,15 @@ impl Collector {
             default_headers: HashMap::new(),
             follow_links: false,
             link_selector: "a[href]".into(),
+            link_selector_type: LinkSelectorType::Css,
             max_concurrency: 0,
         }
     }
 
     /// 设置全局默认请求头
     pub fn set_header(&mut self, key: &str, value: &str) {
-        self.default_headers.insert(key.to_string(), value.to_string());
+        self.default_headers
+            .insert(key.to_string(), value.to_string());
     }
 
     /// 设置最大并发数
@@ -122,6 +127,19 @@ impl Collector {
     /// 自定义链接跟踪选择器
     pub fn set_link_selector(&mut self, selector: &str) {
         self.link_selector = selector.to_string();
+        self.link_selector_type = LinkSelectorType::Css;
+    }
+
+    /// 自定义 XPath 链接跟踪选择器
+    pub fn set_link_xpath(&mut self, selector: &str) {
+        self.link_selector = selector.to_string();
+        self.link_selector_type = LinkSelectorType::Xpath;
+    }
+
+    /// 设置链接选择器和类型
+    pub fn set_link_selector_with_type(&mut self, selector: &str, selector_type: LinkSelectorType) {
+        self.link_selector = selector.to_string();
+        self.link_selector_type = selector_type;
     }
 
     // ──────────────────────────────────────────────
@@ -216,13 +234,12 @@ impl Collector {
 
             // 链接跟踪
             if self.follow_links {
-                let links = extract_links(&response.body, &self.link_selector);
-                let base_url = &response.url;
-
-                let abs_links: Vec<String> = links
-                    .iter()
-                    .filter_map(|l| resolve_url(base_url, l))
-                    .collect();
+                let abs_links = extract_absolute_links(
+                    &response.body,
+                    &self.link_selector,
+                    self.link_selector_type,
+                    &response.url,
+                )?;
 
                 for link in abs_links {
                     let mut child_req = Request::get(&link);
@@ -250,12 +267,31 @@ impl Collector {
             req.headers.insert(k.clone(), v.clone());
         }
         let response = self.http_client.get(url, &req.headers).await?;
-        let links = extract_links(&response.body, selector);
-        let abs_links: Vec<String> = links
-            .iter()
-            .filter_map(|l| resolve_url(&response.url, l))
-            .collect();
-        Ok(abs_links)
+        extract_absolute_links(
+            &response.body,
+            selector,
+            LinkSelectorType::Css,
+            &response.url,
+        )
+        .map_err(Into::into)
+    }
+
+    /// 使用 XPath 提取页面中所有匹配的链接
+    ///
+    /// 不触发回调，直接返回绝对 URL 列表。
+    pub async fn get_links_by_xpath(&self, url: &str, selector: &str) -> Result<Vec<String>> {
+        let mut req = Request::get(url);
+        for (k, v) in &self.default_headers {
+            req.headers.insert(k.clone(), v.clone());
+        }
+        let response = self.http_client.get(url, &req.headers).await?;
+        extract_absolute_links(
+            &response.body,
+            selector,
+            LinkSelectorType::Xpath,
+            &response.url,
+        )
+        .map_err(Into::into)
     }
 
     /// 一步提取文章内容
@@ -310,5 +346,3 @@ impl Collector {
         self.http_client.as_ref()
     }
 }
-
-

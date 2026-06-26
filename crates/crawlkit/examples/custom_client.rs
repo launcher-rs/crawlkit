@@ -17,7 +17,6 @@ async fn main() {
         .build()
         .expect("构建客户端失败");
 
-
     let mut c = Collector::with_client(client);
     c.on_request(|req| {
         println!("  [自定义客户端] 请求: {}", req.url);

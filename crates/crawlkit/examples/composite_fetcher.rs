@@ -23,10 +23,7 @@ async fn main() -> anyhow::Result<()> {
         .build()?;
 
     // 2. 创建组合请求器
-    let fetcher = CompositeFetcher::new(vec![
-        Box::new(client1),
-        Box::new(client2),
-    ]);
+    let fetcher = CompositeFetcher::new(vec![Box::new(client1), Box::new(client2)]);
 
     println!("组合请求器包含 {} 个客户端", fetcher.len());
 
@@ -47,7 +44,9 @@ async fn main() -> anyhow::Result<()> {
 
     // 4. 作为 HttpClient 使用
     println!("\n--- 作为 HttpClient trait 使用 ---");
-    let resp = fetcher.get("https://httpbin.org/ip", &HashMap::new()).await?;
+    let resp = fetcher
+        .get("https://httpbin.org/ip", &HashMap::new())
+        .await?;
     println!("IP 地址: {}", resp.body);
 
     Ok(())

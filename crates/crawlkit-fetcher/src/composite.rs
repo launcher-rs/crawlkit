@@ -40,7 +40,12 @@ impl CompositeFetcher {
             info!("尝试使用 {} 获取: {}", fetcher.name(), url);
             match fetcher.get(url, headers).await {
                 Ok(response) => {
-                    info!("{} 获取成功: {} ({} bytes)", fetcher.name(), url, response.body.len());
+                    info!(
+                        "{} 获取成功: {} ({} bytes)",
+                        fetcher.name(),
+                        url,
+                        response.body.len()
+                    );
                     return Ok(response);
                 }
                 Err(e) => {
@@ -68,7 +73,12 @@ impl CompositeFetcher {
             info!("尝试使用 {} 发送 POST: {}", fetcher.name(), url);
             match fetcher.post(url, headers, body.clone()).await {
                 Ok(response) => {
-                    info!("{} POST 成功: {} ({} bytes)", fetcher.name(), url, response.body.len());
+                    info!(
+                        "{} POST 成功: {} ({} bytes)",
+                        fetcher.name(),
+                        url,
+                        response.body.len()
+                    );
                     return Ok(response);
                 }
                 Err(e) => {
@@ -187,7 +197,10 @@ mod tests {
         ];
         let composite = CompositeFetcher::new(fetchers);
 
-        let result = composite.get("http://test.com", &HashMap::new()).await.unwrap();
+        let result = composite
+            .get("http://test.com", &HashMap::new())
+            .await
+            .unwrap();
         assert_eq!(result.body, "content from m1");
     }
 
@@ -199,7 +212,10 @@ mod tests {
         ];
         let composite = CompositeFetcher::new(fetchers);
 
-        let result = composite.get("http://test.com", &HashMap::new()).await.unwrap();
+        let result = composite
+            .get("http://test.com", &HashMap::new())
+            .await
+            .unwrap();
         assert_eq!(result.body, "content from m2");
     }
 
