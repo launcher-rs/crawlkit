@@ -65,3 +65,7 @@ path = "examples/custom_firecrawl_client.rs"
 [[example]]
 name = "custom_service_fallback"
 path = "examples/custom_service_fallback.rs"
+
+[[example]]
+name = "on_html_element"
+path = "examples/on_html_element.rs"
