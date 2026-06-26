@@ -45,24 +45,38 @@ type XmlElementCallback = Box<dyn Fn(&Element) + Send + Sync>;
 ///
 /// 在 `on_html_element` / `on_xml_element` 回调中使用，
 /// 提供对匹配元素的文本、属性、HTML 内容的访问。
+/// 设计参考 go-colly 的 `HTMLElement`。
 pub struct Element<'a> {
-    /// 当前页面 URL
+    /// 标签名（如 `"a"`, `"div"`）
+    pub name: String,
+    /// 当前页面 URL（重定向后的最终 URL）
     pub url: &'a str,
     /// 元素的纯文本内容
     text: String,
     /// 元素属性
     attrs: HashMap<String, String>,
-    /// 元素原始 HTML
+    /// 元素原始 HTML（含子元素）
     html: String,
+    /// 在当前匹配结果中的位置索引
+    pub index: usize,
 }
 
 impl<'a> Element<'a> {
-    fn new(url: &'a str, text: String, attrs: HashMap<String, String>, html: String) -> Self {
+    fn new(
+        name: String,
+        url: &'a str,
+        text: String,
+        attrs: HashMap<String, String>,
+        html: String,
+        index: usize,
+    ) -> Self {
         Self {
+            name,
             url,
             text,
             attrs,
             html,
+            index,
         }
     }
 
@@ -76,9 +90,95 @@ impl<'a> Element<'a> {
         self.attrs.get(name).map(String::as_str)
     }
 
-    /// 获取元素的原始 HTML
+    /// 获取元素的原始 HTML（含子元素）
     pub fn html(&self) -> &str {
         &self.html
+    }
+
+    /// 获取匹配指定 CSS 选择器的第一个子元素的文本
+    ///
+    /// 类似 go-colly 的 `Element.ChildText(selector)`
+    pub fn child_text(&self, selector: &str) -> String {
+        let doc = Html::parse_document(&self.html);
+        match Selector::parse(selector) {
+            Ok(sel) => doc
+                .select(&sel)
+                .next()
+                .map(|el| {
+                    el.text()
+                        .collect::<Vec<_>>()
+                        .join("")
+                        .trim()
+                        .to_string()
+                })
+                .unwrap_or_default(),
+            Err(_) => String::new(),
+        }
+    }
+
+    /// 获取匹配指定 CSS 选择器的第一个子元素的属性值
+    ///
+    /// 类似 go-colly 的 `Element.ChildAttr(selector, attrName)`
+    pub fn child_attr(&self, selector: &str, attr_name: &str) -> Option<String> {
+        let doc = Html::parse_document(&self.html);
+        Selector::parse(selector)
+            .ok()
+            .and_then(|sel| {
+                doc.select(&sel)
+                    .next()
+                    .and_then(|el| el.value().attr(attr_name).map(|v| v.to_string()))
+            })
+    }
+
+    /// 获取匹配指定 CSS 选择器的所有子元素的文本
+    ///
+    /// 类似 go-colly 的 `Element.ChildTexts(selector)`
+    pub fn child_texts(&self, selector: &str) -> Vec<String> {
+        let doc = Html::parse_document(&self.html);
+        match Selector::parse(selector) {
+            Ok(sel) => doc
+                .select(&sel)
+                .filter_map(|el| {
+                    let text = el
+                        .text()
+                        .collect::<Vec<_>>()
+                        .join("")
+                        .trim()
+                        .to_string();
+                    if text.is_empty() {
+                        None
+                    } else {
+                        Some(text)
+                    }
+                })
+                .collect(),
+            Err(_) => Vec::new(),
+        }
+    }
+
+    /// 获取匹配指定 CSS 选择器的所有子元素的指定属性值
+    ///
+    /// 类似 go-colly 的 `Element.ChildAttrs(selector, attrName)`
+    pub fn child_attrs(&self, selector: &str, attr_name: &str) -> Vec<String> {
+        let doc = Html::parse_document(&self.html);
+        match Selector::parse(selector) {
+            Ok(sel) => doc
+                .select(&sel)
+                .filter_map(|el| {
+                    el.value()
+                        .attr(attr_name)
+                        .map(|v| v.to_string())
+                })
+                .collect(),
+            Err(_) => Vec::new(),
+        }
+    }
+
+    /// 获取所有属性的迭代器
+    pub fn attrs(&self) -> impl Iterator<Item = (&str, &str)> {
+        self.attrs
+            .iter()
+            .map(|(k, v)| (k.as_str(), v.as_str()))
     }
 }
 
@@ -435,7 +535,8 @@ impl Collector {
                         Ok(sel) => {
                             let matches: Vec<_> = document.select(&sel).collect();
                             debug!(selector = %selector_str, count = matches.len(), "on_html_elements 匹配");
-                            for element_ref in &matches {
+                            for (idx, element_ref) in matches.iter().enumerate() {
+                                let name = element_ref.value().name.local.to_string();
                                 let text: String = element_ref
                                     .text()
                                     .collect::<Vec<_>>()
@@ -449,7 +550,9 @@ impl Collector {
                                     .map(|(k, v)| (k.local.to_string(), v.to_string()))
                                     .collect();
                                 let html_str = element_ref.html();
-                                let element = Element::new(&response.url, text, attrs, html_str);
+                                let element = Element::new(
+                                    name, &response.url, text, attrs, html_str, idx,
+                                );
                                 cb(&element);
                             }
                         }
@@ -471,11 +574,12 @@ impl Collector {
                                     match xpath_expr.apply(&tree) {
                                         Ok(item_set) => {
                                             debug!(xpath = %xpath_expr_str, count = item_set.len(), "on_xml_elements 匹配");
-                                            for item in &item_set {
+                                            for (idx, item) in item_set.iter().enumerate() {
                                                 let element = xpath_item_to_element(
                                                     item,
                                                     &tree,
                                                     &response.url,
+                                                    idx,
                                                 );
                                                 if let Some(el) = element {
                                                     cb(&el);
@@ -534,6 +638,7 @@ fn xpath_item_to_element<'a>(
     item: &crawlkit_parser::skyscraper::xpath::grammar::data_model::XpathItem,
     tree: &'a XpathItemTree,
     url: &'a str,
+    index: usize,
 ) -> Option<Element<'a>> {
     use crawlkit_parser::skyscraper::xpath::grammar::data_model::{Node, XpathItem};
     use crawlkit_parser::skyscraper::xpath::grammar::{NonTreeXpathNode, XpathItemTreeNodeData};
@@ -541,13 +646,14 @@ fn xpath_item_to_element<'a>(
     match item {
         XpathItem::Node(Node::TreeNode(tree_node)) => match tree_node.data {
             XpathItemTreeNodeData::ElementNode(element) => {
+                let name = element.name.clone();
                 let mut attrs = HashMap::new();
                 for attr in &element.attributes {
                     attrs.insert(attr.name.clone(), attr.value.clone());
                 }
                 let text = tree_node.all_text(tree).trim().to_string();
                 let html_str = element.to_string();
-                Some(Element::new(url, text, attrs, html_str))
+                Some(Element::new(name, url, text, attrs, html_str, index))
             }
             _ => None,
         },
@@ -555,10 +661,12 @@ fn xpath_item_to_element<'a>(
             let mut attrs = HashMap::new();
             attrs.insert(attr.name.clone(), attr.value.clone());
             Some(Element::new(
+                attr.name.clone(),
                 url,
                 attr.value.clone(),
                 attrs,
                 format!("{}=\"{}\"", attr.name, attr.value),
+                index,
             ))
         }
         _ => None,
@@ -963,5 +1071,100 @@ mod tests {
             assert_eq!(val, 1, "on_response_headers 应先于 on_response 执行");
         });
         c.visit("http://test.com").await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_element_name_and_index() {
+        let results = Arc::new(Mutex::new(Vec::<(String, usize, String)>::new()));
+        let results_clone = Arc::clone(&results);
+
+        let html = r#"<html><body>
+            <a href="/1">First</a>
+            <a href="/2">Second</a>
+            <a href="/3">Third</a>
+        </body></html>"#;
+        let mut c = Collector::with_client(MockClient::ok(html));
+        c.on_html_element("a", move |e| {
+            results_clone.lock().unwrap().push((
+                e.name.clone(),
+                e.index,
+                e.text().to_string(),
+            ));
+        });
+        c.visit("http://test.com").await.unwrap();
+
+        let results = results.lock().unwrap();
+        assert_eq!(results.len(), 3);
+        assert_eq!(results[0], ("a".to_string(), 0, "First".to_string()));
+        assert_eq!(results[1], ("a".to_string(), 1, "Second".to_string()));
+        assert_eq!(results[2], ("a".to_string(), 2, "Third".to_string()));
+    }
+
+    #[tokio::test]
+    async fn test_element_child_text() {
+        let result = Arc::new(Mutex::new(String::new()));
+        let result_clone = Arc::clone(&result);
+
+        let html = r#"<html><body>
+            <div class="card">
+                <h2>Title</h2>
+                <p>Content here</p>
+            </div>
+        </body></html>"#;
+        let mut c = Collector::with_client(MockClient::ok(html));
+        c.on_html_element("div.card", move |e| {
+            let title = e.child_text("h2");
+            let content = e.child_text("p");
+            *result_clone.lock().unwrap() = format!("{}|{}", title, content);
+        });
+        c.visit("http://test.com").await.unwrap();
+
+        assert_eq!(*result.lock().unwrap(), "Title|Content here");
+    }
+
+    #[tokio::test]
+    async fn test_element_child_attr() {
+        let result = Arc::new(Mutex::new(Vec::<String>::new()));
+        let result_clone = Arc::clone(&result);
+
+        let html = r#"<html><body>
+            <div class="links">
+                <a href="/page1">Page 1</a>
+                <a href="/page2">Page 2</a>
+            </div>
+        </body></html>"#;
+        let mut c = Collector::with_client(MockClient::ok(html));
+        c.on_html_element("div.links", move |e| {
+            let hrefs = e.child_attrs("a", "href");
+            *result_clone.lock().unwrap() = hrefs;
+        });
+        c.visit("http://test.com").await.unwrap();
+
+        let hrefs = result.lock().unwrap();
+        assert_eq!(hrefs.len(), 2);
+        assert_eq!(hrefs[0], "/page1");
+        assert_eq!(hrefs[1], "/page2");
+    }
+
+    #[tokio::test]
+    async fn test_element_attrs_iterator() {
+        let result = Arc::new(Mutex::new(Vec::<(String, String)>::new()));
+        let result_clone = Arc::clone(&result);
+
+        let html = r#"<html><body>
+            <a href="/link" class="nav" id="main">Click</a>
+        </body></html>"#;
+        let mut c = Collector::with_client(MockClient::ok(html));
+        c.on_html_element("a", move |e| {
+            let attrs: Vec<_> = e.attrs().map(|(k, v)| (k.to_string(), v.to_string())).collect();
+            *result_clone.lock().unwrap() = attrs;
+        });
+        c.visit("http://test.com").await.unwrap();
+
+        let attrs = result.lock().unwrap();
+        assert_eq!(attrs.len(), 3);
+        assert!(attrs.iter().any(|(k, v)| k == "href" && v == "/link"));
+        assert!(attrs.iter().any(|(k, v)| k == "class" && v == "nav"));
+        assert!(attrs.iter().any(|(k, v)| k == "id" && v == "main"));
     }
 }
