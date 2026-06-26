@@ -449,7 +449,7 @@ impl Collector {
                                     .map(|(k, v)| (k.local.to_string(), v.to_string()))
                                     .collect();
                                 let html_str = element_ref.html();
-                                let element = Element::new(&req.url, text, attrs, html_str);
+                                let element = Element::new(&response.url, text, attrs, html_str);
                                 cb(&element);
                             }
                         }
@@ -475,7 +475,7 @@ impl Collector {
                                                 let element = xpath_item_to_element(
                                                     item,
                                                     &tree,
-                                                    &req.url,
+                                                    &response.url,
                                                 );
                                                 if let Some(el) = element {
                                                     cb(&el);
