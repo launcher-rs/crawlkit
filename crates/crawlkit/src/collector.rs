@@ -16,7 +16,7 @@ use crawlkit_core::response::Response;
 use crawlkit_fetcher_reqwest::ReqwestClient;
 #[cfg(feature = "fetcher-wreq")]
 use crawlkit_fetcher_wreq::WreqClient;
-use crawlkit_parser::html::{extract_absolute_links, extract_article, Article, LinkSelectorType};
+use crawlkit_parser::html::{extract_absolute_links, extract_article, sanitize_for_xpath, Article, LinkSelectorType};
 use crawlkit_parser::scraper::{Html, Selector};
 use crawlkit_parser::skyscraper::html as xpath_html;
 use crawlkit_parser::skyscraper::xpath::{self as skyscraper_xpath, XpathItemTree};
@@ -577,7 +577,8 @@ impl Collector {
 
             // on_xml_elements: XPath 匹配
             if !self.on_xml_elements.is_empty() {
-                match xpath_html::parse(&response.body) {
+                let sanitized = sanitize_for_xpath(&response.body);
+                match xpath_html::parse(&sanitized) {
                     Ok(doc) => {
                         let tree = XpathItemTree::from(&doc);
                         for (xpath_expr_str, cb) in &self.on_xml_elements {
@@ -585,7 +586,7 @@ impl Collector {
                                 Ok(xpath_expr) => {
                                     match xpath_expr.apply(&tree) {
                                         Ok(item_set) => {
-                                            debug!(xpath = %xpath_expr_str, count = item_set.len(), "on_xml_elements 匹配");
+                                            warn!(xpath = %xpath_expr_str, count = item_set.len(), "on_xml_elements 匹配");
                                             for (idx, item) in item_set.iter().enumerate() {
                                                 let element = xpath_item_to_element(
                                                     item,
@@ -1227,5 +1228,39 @@ mod tests {
         assert_eq!(results.len(), 2);
         assert_eq!(results[0], ("/docs/".to_string(), "http://test.com/docs/".to_string(), "Docs".to_string()));
         assert_eq!(results[1], ("/articles/".to_string(), "http://test.com/articles/".to_string(), "Articles".to_string()));
+    }
+
+    #[tokio::test]
+    async fn test_on_xml_element_realistic_html() {
+        let result = Arc::new(Mutex::new(Vec::<String>::new()));
+        let result_clone = Arc::clone(&result);
+
+        let html = r#"<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="utf-8"><title>Test</title></head>
+<body>
+  <header>
+    <nav>
+      <a href="/docs/">Docs</a>
+      <a href="/articles/">Articles</a>
+    </nav>
+  </header>
+  <main>
+    <p>Content</p>
+  </main>
+</body>
+</html>"#;
+        let mut c = Collector::with_client(MockClient::ok(html));
+        c.on_xml_element("//a", move |e| {
+            let href = e.attr("href").unwrap_or("").to_string();
+            let text = e.text().to_string();
+            result_clone.lock().unwrap().push(format!("{}:{}", href, text));
+        });
+        c.visit("http://test.com").await.unwrap();
+
+        let results = result.lock().unwrap();
+        assert_eq!(results.len(), 2);
+        assert_eq!(results[0], "/docs/:Docs");
+        assert_eq!(results[1], "/articles/:Articles");
     }
 }

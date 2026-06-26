@@ -79,7 +79,8 @@ pub fn extract_links_by_selector(
 
 /// 使用 XPath 表达式提取链接。
 pub fn extract_links_by_xpath(html_content: &str, selector: &str) -> Result<Vec<String>> {
-    let document = xpath_html::parse(html_content).map_err(|e| CrawlError::Html(e.to_string()))?;
+    let sanitized = sanitize_for_xpath(html_content);
+    let document = xpath_html::parse(&sanitized).map_err(|e| CrawlError::Html(e.to_string()))?;
     let tree = XpathItemTree::from(&document);
     let xpath_expr = xpath::parse(selector).map_err(|e| CrawlError::Selector {
         selector: selector.to_string(),
@@ -501,4 +502,48 @@ mod tests {
         assert!(resolve_url("https://example.com", "mailto:test@example.com").is_none());
         assert!(resolve_url("https://example.com", "#top").is_none());
     }
+
+    #[test]
+    fn test_sanitize_for_xpath_meta() {
+        let html = r#"<html><head><meta charset="utf-8"></head><body></body></html>"#;
+        let sanitized = sanitize_for_xpath(html);
+        assert!(sanitized.contains("meta"));
+        assert!(sanitized.contains("charset"));
+    }
+
+    #[test]
+    fn test_sanitize_for_xpath_self_closing_unchanged() {
+        let html = r#"<html><head><meta charset="utf-8" /></head><body></body></html>"#;
+        let sanitized = sanitize_for_xpath(html);
+        assert!(sanitized.contains("meta"));
+        assert!(sanitized.contains("charset"));
+    }
+
+    #[test]
+    fn test_sanitize_for_xpath_multiple_void_elements() {
+        let html = r#"<br><img src="x.png"><input type="text"><link rel="stylesheet">"#;
+        let sanitized = sanitize_for_xpath(html);
+        assert!(sanitized.contains("br"));
+        assert!(sanitized.contains("img"));
+        assert!(sanitized.contains("input"));
+        assert!(sanitized.contains("link"));
+    }
+
+    #[test]
+    fn test_sanitize_for_xpath_non_void_unchanged() {
+        let html = r#"<div><p>Hello</p></div>"#;
+        let sanitized = sanitize_for_xpath(html);
+        assert!(sanitized.contains("<div>"));
+        assert!(sanitized.contains("<p>"));
+    }
+}
+
+/// 将 HTML 中未自闭合的 void 元素转为自闭合格式
+///
+/// skyscraper 的 HTML 解析器是 XML 严格模式，遇到 `<meta>` 会报错。
+/// 此函数用 scraper（html5ever，宽容解析）先解析再序列化，
+/// 得到格式良好的 HTML，使 skyscraper 能正确解析。
+pub fn sanitize_for_xpath(html: &str) -> String {
+    let doc = Html::parse_document(html);
+    doc.html()
 }
