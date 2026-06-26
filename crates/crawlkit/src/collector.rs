@@ -17,6 +17,9 @@ use crawlkit_fetcher_reqwest::ReqwestClient;
 #[cfg(feature = "fetcher-wreq")]
 use crawlkit_fetcher_wreq::WreqClient;
 use crawlkit_parser::html::{extract_absolute_links, extract_article, Article, LinkSelectorType};
+use crawlkit_parser::scraper::{Html, Selector};
+use crawlkit_parser::skyscraper::html as xpath_html;
+use crawlkit_parser::skyscraper::xpath::{self as skyscraper_xpath, XpathItemTree};
 
 /// follow_links 默认最大递归深度
 const DEFAULT_MAX_DEPTH: usize = 10;
@@ -29,6 +32,55 @@ type RequestCallback = Box<dyn Fn(&mut Request) + Send + Sync>;
 type ResponseCallback = Box<dyn Fn(&Response) + Send + Sync>;
 type HtmlCallback = Box<dyn Fn(&str, &str) + Send + Sync>;
 type ErrorCallback = Box<dyn Fn(&dyn std::error::Error) + Send + Sync>;
+type ResponseHeadersCallback = Box<dyn Fn(&Response) + Send + Sync>;
+type ScrapedCallback = Box<dyn Fn(&Response) + Send + Sync>;
+
+/// HTML 元素回调（CSS 选择器匹配）
+type HtmlElementCallback = Box<dyn Fn(&Element) + Send + Sync>;
+
+/// XML 元素回调（XPath 匹配）
+type XmlElementCallback = Box<dyn Fn(&Element) + Send + Sync>;
+
+/// HTML 元素包装器
+///
+/// 在 `on_html_element` / `on_xml_element` 回调中使用，
+/// 提供对匹配元素的文本、属性、HTML 内容的访问。
+pub struct Element<'a> {
+    /// 当前页面 URL
+    pub url: &'a str,
+    /// 元素的纯文本内容
+    text: String,
+    /// 元素属性
+    attrs: HashMap<String, String>,
+    /// 元素原始 HTML
+    html: String,
+}
+
+impl<'a> Element<'a> {
+    fn new(url: &'a str, text: String, attrs: HashMap<String, String>, html: String) -> Self {
+        Self {
+            url,
+            text,
+            attrs,
+            html,
+        }
+    }
+
+    /// 获取元素的纯文本内容
+    pub fn text(&self) -> &str {
+        &self.text
+    }
+
+    /// 获取元素的指定属性值
+    pub fn attr(&self, name: &str) -> Option<&str> {
+        self.attrs.get(name).map(String::as_str)
+    }
+
+    /// 获取元素的原始 HTML
+    pub fn html(&self) -> &str {
+        &self.html
+    }
+}
 
 /// 爬虫收集器 —— 框架核心调度器
 ///
@@ -50,6 +102,9 @@ pub struct Collector {
     /// 请求前回调
     on_request: Option<RequestCallback>,
 
+    /// 收到响应头后回调（早于 on_response）
+    on_response_headers: Option<ResponseHeadersCallback>,
+
     /// 收到响应后回调
     on_response: Option<ResponseCallback>,
 
@@ -58,6 +113,15 @@ pub struct Collector {
 
     /// 错误回调
     on_error: Option<ErrorCallback>,
+
+    /// CSS 选择器 → HTML 元素回调列表
+    on_html_elements: Vec<(String, HtmlElementCallback)>,
+
+    /// XPath → XML 元素回调列表
+    on_xml_elements: Vec<(String, XmlElementCallback)>,
+
+    /// 抓取完成回调（所有回调执行完毕后触发）
+    on_scraped: Option<ScrapedCallback>,
 
     /// 已访问 URL 集合（防重复）
     visited: Arc<Mutex<std::collections::HashSet<String>>>,
@@ -114,9 +178,13 @@ impl Collector {
         Self {
             http_client: Arc::new(client),
             on_request: None,
+            on_response_headers: None,
             on_response: None,
             on_html: None,
             on_error: None,
+            on_html_elements: Vec::new(),
+            on_xml_elements: Vec::new(),
+            on_scraped: None,
             visited: Arc::new(Mutex::new(std::collections::HashSet::new())),
             default_headers: HashMap::new(),
             follow_links: false,
@@ -193,6 +261,74 @@ impl Collector {
         self.on_html = Some(Box::new(callback));
     }
 
+    /// 注册响应头回调
+    ///
+    /// 收到 HTTP 响应后立即调用（早于 `on_response`），可用于检查状态码、响应头等。
+    pub fn on_response_headers(&mut self, callback: impl Fn(&Response) + Send + Sync + 'static) {
+        self.on_response_headers = Some(Box::new(callback));
+    }
+
+    /// 注册 HTML 元素回调（CSS 选择器匹配）
+    ///
+    /// 当页面中存在匹配 CSS 选择器的元素时，对每个匹配元素调用回调。
+    ///
+    /// # 示例
+    /// ```rust,no_run
+    /// use crawlkit::Collector;
+    ///
+    /// #[tokio::main]
+    /// async fn main() {
+    ///     let mut c = Collector::new();
+    ///     c.on_html_element("a[href]", |e| {
+    ///         if let Some(href) = e.attr("href") {
+    ///             println!("链接: {} → {}", e.text(), href);
+    ///         }
+    ///     });
+    ///     c.visit("https://example.com").await.unwrap();
+    /// }
+    /// ```
+    pub fn on_html_element(
+        &mut self,
+        selector: &str,
+        callback: impl Fn(&Element) + Send + Sync + 'static,
+    ) {
+        self.on_html_elements
+            .push((selector.to_string(), Box::new(callback)));
+    }
+
+    /// 注册 XML 元素回调（XPath 匹配）
+    ///
+    /// 当页面中存在匹配 XPath 表达式的元素时，对每个匹配元素调用回调。
+    ///
+    /// # 示例
+    /// ```rust,no_run
+    /// use crawlkit::Collector;
+    ///
+    /// #[tokio::main]
+    /// async fn main() {
+    ///     let mut c = Collector::new();
+    ///     c.on_xml_element("//a/@href", |e| {
+    ///         println!("href: {:?}", e.text());
+    ///     });
+    ///     c.visit("https://example.com").await.unwrap();
+    /// }
+    /// ```
+    pub fn on_xml_element(
+        &mut self,
+        xpath: &str,
+        callback: impl Fn(&Element) + Send + Sync + 'static,
+    ) {
+        self.on_xml_elements
+            .push((xpath.to_string(), Box::new(callback)));
+    }
+
+    /// 注册抓取完成回调
+    ///
+    /// 在所有回调执行完毕后触发，可用于统计、清理等收尾操作。
+    pub fn on_scraped(&mut self, callback: impl Fn(&Response) + Send + Sync + 'static) {
+        self.on_scraped = Some(Box::new(callback));
+    }
+
     /// 注册错误回调
     pub fn on_error(&mut self, callback: impl Fn(&dyn std::error::Error) + Send + Sync + 'static) {
         self.on_error = Some(Box::new(callback));
@@ -267,6 +403,12 @@ impl Collector {
             visited.insert(req.url.clone());
         }
 
+        // 执行 on_response_headers 回调（早于 on_response）
+        if let Some(ref cb) = self.on_response_headers {
+            debug!("执行 on_response_headers 回调");
+            cb(&response);
+        }
+
         // 执行 on_response 回调
         if let Some(ref cb) = self.on_response {
             debug!("执行 on_response 回调");
@@ -278,6 +420,78 @@ impl Collector {
             if let Some(ref cb) = self.on_html {
                 debug!("执行 on_html 回调");
                 cb(&response.body, &response.url);
+            }
+
+            // on_html_elements: CSS 选择器匹配
+            if !self.on_html_elements.is_empty() {
+                let document = Html::parse_document(&response.body);
+                for (selector_str, cb) in &self.on_html_elements {
+                    match Selector::parse(selector_str) {
+                        Ok(sel) => {
+                            let matches: Vec<_> = document.select(&sel).collect();
+                            debug!(selector = %selector_str, count = matches.len(), "on_html_elements 匹配");
+                            for element_ref in &matches {
+                                let text: String = element_ref
+                                    .text()
+                                    .collect::<Vec<_>>()
+                                    .join("")
+                                    .trim()
+                                    .to_string();
+                                let attrs: HashMap<String, String> = element_ref
+                                    .value()
+                                    .attrs
+                                    .iter()
+                                    .map(|(k, v)| (k.local.to_string(), v.to_string()))
+                                    .collect();
+                                let html_str = element_ref.html();
+                                let element = Element::new(&response.url, text, attrs, html_str);
+                                cb(&element);
+                            }
+                        }
+                        Err(e) => {
+                            warn!(selector = %selector_str, error = %e, "CSS 选择器解析失败");
+                        }
+                    }
+                }
+            }
+
+            // on_xml_elements: XPath 匹配
+            if !self.on_xml_elements.is_empty() {
+                match xpath_html::parse(&response.body) {
+                    Ok(doc) => {
+                        let tree = XpathItemTree::from(&doc);
+                        for (xpath_expr_str, cb) in &self.on_xml_elements {
+                            match skyscraper_xpath::parse(xpath_expr_str) {
+                                Ok(xpath_expr) => {
+                                    match xpath_expr.apply(&tree) {
+                                        Ok(item_set) => {
+                                            debug!(xpath = %xpath_expr_str, count = item_set.len(), "on_xml_elements 匹配");
+                                            for item in &item_set {
+                                                let element = xpath_item_to_element(
+                                                    item,
+                                                    &tree,
+                                                    &response.url,
+                                                );
+                                                if let Some(el) = element {
+                                                    cb(&el);
+                                                }
+                                            }
+                                        }
+                                        Err(e) => {
+                                            warn!(xpath = %xpath_expr_str, error = %e, "XPath 执行失败");
+                                        }
+                                    }
+                                }
+                                Err(e) => {
+                                    warn!(xpath = %xpath_expr_str, error = %e, "XPath 解析失败");
+                                }
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        warn!(error = %e, "HTML 解析失败（用于 XPath）");
+                    }
+                }
             }
 
             // 链接跟踪
@@ -300,9 +514,53 @@ impl Collector {
             }
         }
 
+        // 执行 on_scraped 回调
+        if let Some(ref cb) = self.on_scraped {
+            debug!("执行 on_scraped 回调");
+            cb(&response);
+        }
+
         Ok(())
     }
+}
 
+/// 将 skyscraper XPath 匹配项转为 Element
+fn xpath_item_to_element<'a>(
+    item: &crawlkit_parser::skyscraper::xpath::grammar::data_model::XpathItem,
+    tree: &'a XpathItemTree,
+    url: &'a str,
+) -> Option<Element<'a>> {
+    use crawlkit_parser::skyscraper::xpath::grammar::data_model::{Node, XpathItem};
+    use crawlkit_parser::skyscraper::xpath::grammar::{NonTreeXpathNode, XpathItemTreeNodeData};
+
+    match item {
+        XpathItem::Node(Node::TreeNode(tree_node)) => match tree_node.data {
+            XpathItemTreeNodeData::ElementNode(element) => {
+                let mut attrs = HashMap::new();
+                for attr in &element.attributes {
+                    attrs.insert(attr.name.clone(), attr.value.clone());
+                }
+                let text = tree_node.all_text(tree).trim().to_string();
+                let html_str = element.to_string();
+                Some(Element::new(url, text, attrs, html_str))
+            }
+            _ => None,
+        },
+        XpathItem::Node(Node::NonTreeNode(NonTreeXpathNode::AttributeNode(attr))) => {
+            let mut attrs = HashMap::new();
+            attrs.insert(attr.name.clone(), attr.value.clone());
+            Some(Element::new(
+                url,
+                attr.value.clone(),
+                attrs,
+                format!("{}=\"{}\"", attr.name, attr.value),
+            ))
+        }
+        _ => None,
+    }
+}
+
+impl Collector {
     // ──────────────────────────────────────────────
     // 便捷方法
     // ──────────────────────────────────────────────
@@ -585,5 +843,120 @@ mod tests {
         // depth 1: /a, /b (2 requests)
         // depth 2: /c, /d 被 max_depth 阻止
         assert_eq!(call_count.load(Ordering::Relaxed), 3);
+    }
+
+    #[tokio::test]
+    async fn test_on_response_headers_callback() {
+        use std::sync::atomic::AtomicBool;
+
+        let called = Arc::new(AtomicBool::new(false));
+        let called_clone = Arc::clone(&called);
+
+        let mut c = Collector::with_client(MockClient::ok("<html></html>"));
+        c.on_response_headers(move |_resp| {
+            called_clone.store(true, Ordering::Relaxed);
+        });
+        c.visit("http://test.com").await.unwrap();
+        assert!(called.load(Ordering::Relaxed));
+    }
+
+    #[tokio::test]
+    async fn test_on_html_element_callback() {
+        let hit = Arc::new(Mutex::new(Vec::<String>::new()));
+        let hit_clone = Arc::clone(&hit);
+
+        let html = r#"<html><body>
+            <a href="/a" class="link">Link A</a>
+            <a href="/b" class="link">Link B</a>
+        </body></html>"#;
+        let mut c = Collector::with_client(MockClient::ok(html));
+        c.on_html_element("a.link", move |e| {
+            hit_clone.lock().unwrap().push(e.text().to_string());
+        });
+        c.visit("http://test.com").await.unwrap();
+
+        let texts = hit.lock().unwrap();
+        assert_eq!(texts.len(), 2);
+        assert!(texts.contains(&"Link A".to_string()));
+        assert!(texts.contains(&"Link B".to_string()));
+    }
+
+    #[tokio::test]
+    async fn test_on_html_element_attr_access() {
+        let hrefs = Arc::new(Mutex::new(Vec::<String>::new()));
+        let hrefs_clone = Arc::clone(&hrefs);
+
+        let html = r#"<html><body>
+            <a href="http://example.com/1">First</a>
+            <a href="http://example.com/2">Second</a>
+        </body></html>"#;
+        let mut c = Collector::with_client(MockClient::ok(html));
+        c.on_html_element("a", move |e| {
+            if let Some(href) = e.attr("href") {
+                hrefs_clone.lock().unwrap().push(href.to_string());
+            }
+        });
+        c.visit("http://test.com").await.unwrap();
+
+        let hrefs = hrefs.lock().unwrap();
+        assert_eq!(hrefs.len(), 2);
+        assert!(hrefs.contains(&"http://example.com/1".to_string()));
+        assert!(hrefs.contains(&"http://example.com/2".to_string()));
+    }
+
+    #[tokio::test]
+    async fn test_on_xml_element_callback() {
+        let names = Arc::new(Mutex::new(Vec::<String>::new()));
+        let names_clone = Arc::clone(&names);
+
+        let html = r#"<html><body>
+            <item><name>Apple</name></item>
+            <item><name>Banana</name></item>
+        </body></html>"#;
+        let mut c = Collector::with_client(MockClient::ok(html));
+        c.on_xml_element("//name", move |e| {
+            names_clone.lock().unwrap().push(e.text().to_string());
+        });
+        c.visit("http://test.com").await.unwrap();
+
+        let names = names.lock().unwrap();
+        assert_eq!(names.len(), 2);
+        assert!(names.contains(&"Apple".to_string()));
+        assert!(names.contains(&"Banana".to_string()));
+    }
+
+    #[tokio::test]
+    async fn test_on_scraped_callback() {
+        use std::sync::atomic::AtomicBool;
+
+        let called = Arc::new(AtomicBool::new(false));
+        let called_clone = Arc::clone(&called);
+
+        let mut c = Collector::with_client(MockClient::ok("<html></html>"));
+        c.on_scraped(move |_resp| {
+            called_clone.store(true, Ordering::Relaxed);
+        });
+        c.visit("http://test.com").await.unwrap();
+        assert!(called.load(Ordering::Relaxed));
+    }
+
+    #[tokio::test]
+    async fn test_on_response_headers_before_on_response() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+
+        let order = Arc::new(AtomicUsize::new(0));
+        let order_clone = Arc::clone(&order);
+
+        let mut c = Collector::with_client(MockClient::ok("<html></html>"));
+        c.on_response_headers(move |_resp| {
+            order_clone.fetch_add(1, Ordering::Relaxed);
+        });
+        let order_clone2 = Arc::clone(&order);
+        c.on_response(move |_resp| {
+            // on_response should see value 1 (on_response_headers ran first)
+            let val = order_clone2.fetch_add(10, Ordering::Relaxed);
+            assert_eq!(val, 1, "on_response_headers 应先于 on_response 执行");
+        });
+        c.visit("http://test.com").await.unwrap();
     }
 }

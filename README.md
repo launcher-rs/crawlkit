@@ -27,7 +27,16 @@ async fn main() {
 
 ## 回调系统
 
-`Collector` 提供四个核心回调，按请求生命周期依次触发：
+`Collector` 提供完整的回调链，按请求生命周期依次触发：
+
+### 回调执行顺序
+
+```
+on_request → [HTTP 请求] → on_response_headers → on_response
+  → [HTML 时] on_html → on_html_elements (逐个匹配) → on_xml_elements (逐个匹配)
+  → [follow_links 时] 递归子链接
+  → on_scraped
+```
 
 ### `on_request` — 请求前
 
@@ -51,6 +60,18 @@ async fn main() {
 ```
 
 **回调签名**: `Fn(&mut Request)` — 可变引用，允许修改请求。
+
+### `on_response_headers` — 响应头回调
+
+收到 HTTP 响应后立即调用（早于 `on_response`），可用于检查状态码、响应头等。
+
+```rust
+c.on_response_headers(|resp| {
+    println!("[响应头] {} - {}", resp.status, resp.url);
+});
+```
+
+**回调签名**: `Fn(&Response)` — 不可变引用。
 
 ### `on_response` — 响应后
 
@@ -76,6 +97,36 @@ c.on_html(|html, url| {
 
 **回调签名**: `Fn(&str, &str)` — (html_body, page_url)。
 
+### `on_html_element` — CSS 选择器匹配元素
+
+当页面中存在匹配 CSS 选择器的元素时，对每个匹配元素调用回调。可注册多次，支持多个选择器。
+
+```rust
+c.on_html_element("a[href]", |e| {
+    println!("链接: {} → {}", e.text(), e.attr("href").unwrap_or(""));
+});
+
+c.on_html_element("h1", |e| {
+    println!("标题: {}", e.text());
+});
+```
+
+**`Element` 提供的方法**:
+- `text()` — 元素的纯文本内容
+- `attr(name)` — 获取属性值
+- `html()` — 元素的原始 HTML
+- `url` — 当前页面 URL
+
+### `on_xml_element` — XPath 匹配元素
+
+当页面中存在匹配 XPath 表达式的元素时，对每个匹配元素调用。
+
+```rust
+c.on_xml_element("//item/name", |e| {
+    println!("名称: {}", e.text());
+});
+```
+
 ### `on_error` — 错误处理
 
 请求失败时调用。可用于记录错误、触发告警等。
@@ -88,40 +139,21 @@ c.on_error(|err| {
 
 **回调签名**: `Fn(&dyn std::error::Error)`。
 
-### 完整回调示例
+### `on_scraped` — 抓取完成
+
+在所有回调执行完毕后触发，可用于统计、清理等收尾操作。
 
 ```rust
-use crawlkit::Collector;
-
-#[tokio::main]
-async fn main() {
-    let mut c = Collector::new();
-
-    c.on_request(|req| {
-        println!("[请求] {} {}", req.method, req.url);
-    });
-
-    c.on_response(|resp| {
-        println!("[响应] {} - {}", resp.status, resp.url);
-    });
-
-    c.on_html(|html, url| {
-        println!("[HTML] {} - {} bytes", url, html.len());
-    });
-
-    c.on_error(|err| {
-        eprintln!("[错误] {}", err);
-    });
-
-    c.visit("https://example.com").await.unwrap();
-}
+c.on_scraped(|resp| {
+    println!("[完成] {} 处理结束", resp.url);
+});
 ```
 
 ### 回调注意事项
 
-- 每种回调只能注册一个，重复注册会覆盖前一个
-- 回调按顺序执行：`on_request` → HTTP 请求 → `on_response` → `on_html`（HTML 时）
-- 错误发生时仅触发 `on_error`，不会触发 `on_response`
+- `on_request` / `on_response` / `on_html` / `on_error` / `on_response_headers` / `on_scraped` 每种只能注册一个，重复注册会覆盖前一个
+- `on_html_element` / `on_xml_element` 可注册多次，支持多个选择器
+- 回调执行顺序见上方流程图
 
 ## 功能示例
 
@@ -243,6 +275,7 @@ crawlkit::log::init_debug();
 | 类型 | 说明 |
 |------|------|
 | `Collector` | 爬虫核心调度器 |
+| `Element` | HTML/XML 元素包装器（用于选择器回调） |
 | `HttpClient` | HTTP 客户端 trait |
 | `ReqwestClient` | 默认 HTTP 客户端（基于 reqwest） |
 | `WreqClient` | TLS 指纹模拟客户端（基于 wreq） |
@@ -262,9 +295,13 @@ crawlkit::log::init_debug();
 | `get_article()` | 提取文章内容 |
 | `get_articles()` | 批量并发抓取文章 |
 | `on_request()` | 注册请求前回调 |
+| `on_response_headers()` | 注册响应头回调 |
 | `on_response()` | 注册响应回调 |
 | `on_html()` | 注册 HTML 回调 |
+| `on_html_element()` | 注册 CSS 选择器匹配元素回调 |
+| `on_xml_element()` | 注册 XPath 匹配元素回调 |
 | `on_error()` | 注册错误回调 |
+| `on_scraped()` | 注册抓取完成回调 |
 
 ### HTML 工具
 

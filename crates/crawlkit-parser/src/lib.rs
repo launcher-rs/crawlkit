@@ -11,3 +11,9 @@ pub use html::{
     extract_readable_content, extract_texts, resolve_url, try_extract_links, Article,
     LinkSelectorType,
 };
+
+/// 重新导出 scraper 供上层 crate 构建 Element
+pub use scraper;
+
+/// 重新导出 skyscraper 供上层 crate 实现 XPath 元素回调
+pub use skyscraper;
