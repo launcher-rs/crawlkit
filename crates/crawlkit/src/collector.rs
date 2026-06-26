@@ -6,10 +6,10 @@
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
-use anyhow::Result;
 use tracing::{debug, instrument, warn};
 
 use crawlkit_core::client::HttpClient;
+use crawlkit_core::error::{CrawlError, Result};
 use crawlkit_core::request::Request;
 use crawlkit_core::response::Response;
 #[cfg(feature = "fetcher-reqwest")]
@@ -17,6 +17,12 @@ use crawlkit_fetcher_reqwest::ReqwestClient;
 #[cfg(feature = "fetcher-wreq")]
 use crawlkit_fetcher_wreq::WreqClient;
 use crawlkit_parser::html::{extract_absolute_links, extract_article, Article, LinkSelectorType};
+
+/// follow_links 默认最大递归深度
+const DEFAULT_MAX_DEPTH: usize = 10;
+
+/// 默认并发上限（当 max_concurrency 为 0 时使用）
+const DEFAULT_MAX_CONCURRENCY: usize = 16;
 
 /// 回调函数类型别名
 type RequestCallback = Box<dyn Fn(&mut Request) + Send + Sync>;
@@ -68,8 +74,11 @@ pub struct Collector {
     /// 链接选择器类型
     link_selector_type: LinkSelectorType,
 
-    /// 最大并发数（0 = 不限制）
+    /// 最大并发数（0 = 使用默认上限）
     max_concurrency: usize,
+
+    /// follow_links 最大递归深度
+    max_depth: usize,
 }
 
 impl Collector {
@@ -106,6 +115,7 @@ impl Collector {
             link_selector: "a[href]".into(),
             link_selector_type: LinkSelectorType::Css,
             max_concurrency: 0,
+            max_depth: DEFAULT_MAX_DEPTH,
         }
     }
 
@@ -116,6 +126,8 @@ impl Collector {
     }
 
     /// 设置最大并发数
+    ///
+    /// 设为 0 表示使用默认上限（16）。
     pub fn set_max_concurrency(&mut self, n: usize) {
         self.max_concurrency = n;
     }
@@ -123,6 +135,11 @@ impl Collector {
     /// 启用/禁用链接跟踪
     pub fn set_follow_links(&mut self, follow: bool) {
         self.follow_links = follow;
+    }
+
+    /// 设置 follow_links 最大递归深度（默认 10）
+    pub fn set_max_depth(&mut self, depth: usize) {
+        self.max_depth = depth;
     }
 
     /// 自定义链接跟踪选择器
@@ -188,15 +205,24 @@ impl Collector {
         for (k, v) in &self.default_headers {
             req.headers.insert(k.clone(), v.clone());
         }
-        self.do_request(&mut req).await
+        self.do_request(&mut req, 0).await
     }
 
     /// 内部请求执行核心逻辑
     #[instrument(skip(self, req), fields(url = %req.url))]
-    async fn do_request(&mut self, req: &mut Request) -> Result<()> {
+    async fn do_request(&mut self, req: &mut Request, depth: usize) -> Result<()> {
+        // 检查递归深度
+        if depth > self.max_depth {
+            warn!(url = %req.url, depth, max_depth = self.max_depth, "达到最大递归深度，跳过");
+            return Ok(());
+        }
+
         // 检查是否已访问
         {
-            let visited = self.visited.lock().unwrap();
+            let visited = self
+                .visited
+                .lock()
+                .map_err(|e| CrawlError::Lock(format!("锁中毒: {e}")))?;
             if visited.contains(&req.url) && !req.allow_revisit {
                 debug!("跳过已访问的 URL");
                 return Ok(());
@@ -218,7 +244,7 @@ impl Collector {
                 if let Some(ref cb) = self.on_error {
                     cb(&e);
                 }
-                return Err(e.into());
+                return Err(e);
             }
         };
 
@@ -226,7 +252,10 @@ impl Collector {
 
         // 标记已访问
         {
-            let mut visited = self.visited.lock().unwrap();
+            let mut visited = self
+                .visited
+                .lock()
+                .map_err(|e| CrawlError::Lock(format!("锁中毒: {e}")))?;
             visited.insert(req.url.clone());
         }
 
@@ -252,13 +281,13 @@ impl Collector {
                     &response.url,
                 )?;
 
-                debug!(count = abs_links.len(), "提取到子链接，开始递归访问");
+                debug!(count = abs_links.len(), depth, "提取到子链接，递归访问");
                 for link in abs_links {
                     let mut child_req = Request::get(&link);
                     for (k, v) in &self.default_headers {
                         child_req.headers.insert(k.clone(), v.clone());
                     }
-                    Box::pin(self.do_request(&mut child_req)).await?;
+                    Box::pin(self.do_request(&mut child_req, depth + 1)).await?;
                 }
             }
         }
@@ -328,7 +357,7 @@ impl Collector {
         let client = self.http_client.clone();
         let headers = self.default_headers.clone();
         let concurrency = if self.max_concurrency == 0 {
-            urls.len()
+            urls.len().min(DEFAULT_MAX_CONCURRENCY)
         } else {
             self.max_concurrency
         };
@@ -339,13 +368,18 @@ impl Collector {
             let url = url.clone();
             let client = client.clone();
             let headers = headers.clone();
-            let permit = semaphore.clone().acquire_owned().await.unwrap();
+            let permit = match semaphore.clone().acquire_owned().await {
+                Ok(p) => p,
+                Err(_) => {
+                    continue;
+                }
+            };
             handles.push(tokio::spawn(async move {
                 let result = client.get(&url, &headers).await;
                 drop(permit);
                 match result {
                     Ok(resp) => Ok(extract_article(&resp.body, &resp.url)),
-                    Err(e) => Err(anyhow::anyhow!("请求失败: {e}")),
+                    Err(e) => Err(e),
                 }
             }));
         }
@@ -354,7 +388,7 @@ impl Collector {
         for handle in handles {
             match handle.await {
                 Ok(r) => results.push(r),
-                Err(e) => results.push(Err(anyhow::anyhow!("任务 panicked: {e}"))),
+                Err(e) => results.push(Err(CrawlError::Http(format!("任务 panicked: {e}")))),
             }
         }
         let success = results.iter().filter(|r| r.is_ok()).count();
@@ -365,5 +399,183 @@ impl Collector {
     /// 获取底层 HTTP 客户端引用
     pub fn client(&self) -> &dyn HttpClient {
         self.http_client.as_ref()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use async_trait::async_trait;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    struct MockClient {
+        responses: Vec<Result<Response>>,
+        call_count: Arc<AtomicUsize>,
+    }
+
+    impl MockClient {
+        fn ok(body: &str) -> Self {
+            Self {
+                responses: vec![Ok(Response {
+                    url: "http://test.com".into(),
+                    status: 200,
+                    headers: HashMap::from([("content-type".into(), "text/html".into())]),
+                    body: body.to_string(),
+                })],
+                call_count: Arc::new(AtomicUsize::new(0)),
+            }
+        }
+
+        fn fail() -> Self {
+            Self {
+                responses: vec![Err(CrawlError::Http("模拟错误".into()))],
+                call_count: Arc::new(AtomicUsize::new(0)),
+            }
+        }
+
+        fn sequence(responses: Vec<Result<Response>>) -> Self {
+            Self {
+                responses,
+                call_count: Arc::new(AtomicUsize::new(0)),
+            }
+        }
+    }
+
+    #[async_trait]
+    impl HttpClient for MockClient {
+        async fn get(&self, _url: &str, _headers: &HashMap<String, String>) -> Result<Response> {
+            let idx = self.call_count.fetch_add(1, Ordering::Relaxed);
+            match self.responses.get(idx) {
+                Some(Ok(r)) => Ok(r.clone()),
+                Some(Err(e)) => Err(CrawlError::Http(e.to_string())),
+                None => Err(CrawlError::Http("无更多模拟响应".into())),
+            }
+        }
+
+        async fn post(
+            &self,
+            url: &str,
+            headers: &HashMap<String, String>,
+            _body: Vec<u8>,
+        ) -> Result<Response> {
+            self.get(url, headers).await
+        }
+
+        fn name(&self) -> &str {
+            "mock"
+        }
+    }
+
+    #[tokio::test]
+    async fn test_visit_basic() {
+        let mut c = Collector::with_client(MockClient::ok("<html></html>"));
+        let result = c.visit("http://test.com").await;
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_visit_error() {
+        let mut c = Collector::with_client(MockClient::fail());
+        let result = c.visit("http://test.com").await;
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_visited_dedup() {
+        let client = MockClient::sequence(vec![
+            Ok(Response {
+                url: "http://test.com".into(),
+                status: 200,
+                headers: HashMap::new(),
+                body: "ok".into(),
+            }),
+            Ok(Response {
+                url: "http://test.com".into(),
+                status: 200,
+                headers: HashMap::new(),
+                body: "ok2".into(),
+            }),
+        ]);
+        let call_count = Arc::clone(&client.call_count);
+        let mut c = Collector::with_client(client);
+
+        c.visit("http://test.com").await.unwrap();
+        c.visit("http://test.com").await.unwrap();
+
+        assert_eq!(call_count.load(Ordering::Relaxed), 1);
+    }
+
+    #[tokio::test]
+    async fn test_on_request_callback() {
+        use std::sync::atomic::AtomicBool;
+
+        let called = Arc::new(AtomicBool::new(false));
+        let called_clone = Arc::clone(&called);
+
+        let mut c = Collector::with_client(MockClient::ok("<html></html>"));
+        c.on_request(move |_req| {
+            called_clone.store(true, Ordering::Relaxed);
+        });
+        c.visit("http://test.com").await.unwrap();
+        assert!(called.load(Ordering::Relaxed));
+    }
+
+    #[tokio::test]
+    async fn test_max_depth_limits_recursion() {
+        // 每个页面都包含子链接，用于验证深度限制
+        let root_html = r#"<html><body>
+            <a href="http://test.com/a">link1</a>
+            <a href="http://test.com/b">link2</a>
+        </body></html>"#;
+        let child_html = r#"<html><body>
+            <a href="http://test.com/c">deep link</a>
+        </body></html>"#;
+        // /c 页面也包含链接，但 depth=2 时不应被访问
+        let deep_html = r#"<html><body>
+            <a href="http://test.com/d">very deep</a>
+        </body></html>"#;
+
+        let client = MockClient::sequence(vec![
+            // depth 0: root
+            Ok(Response {
+                url: "http://test.com".into(),
+                status: 200,
+                headers: HashMap::from([("content-type".into(), "text/html".into())]),
+                body: root_html.to_string(),
+            }),
+            // depth 1: /a (包含子链接)
+            Ok(Response {
+                url: "http://test.com/a".into(),
+                status: 200,
+                headers: HashMap::from([("content-type".into(), "text/html".into())]),
+                body: child_html.to_string(),
+            }),
+            // depth 1: /b (包含子链接)
+            Ok(Response {
+                url: "http://test.com/b".into(),
+                status: 200,
+                headers: HashMap::from([("content-type".into(), "text/html".into())]),
+                body: child_html.to_string(),
+            }),
+            // depth 2 的 /c 不应被访问，所以不需要准备响应
+            // 如果 depth 2 被执行，MockClient 会返回 "无更多模拟响应" 错误
+            Ok(Response {
+                url: "http://test.com/c".into(),
+                status: 200,
+                headers: HashMap::from([("content-type".into(), "text/html".into())]),
+                body: deep_html.to_string(),
+            }),
+        ]);
+        let call_count = Arc::clone(&client.call_count);
+        let mut c = Collector::with_client(client);
+        c.set_follow_links(true);
+        c.set_max_depth(1);
+
+        c.visit("http://test.com").await.unwrap();
+
+        // depth 0: root (1 request)
+        // depth 1: /a, /b (2 requests)
+        // depth 2: /c, /d 被 max_depth 阻止
+        assert_eq!(call_count.load(Ordering::Relaxed), 3);
     }
 }

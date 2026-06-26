@@ -31,7 +31,6 @@ impl Response {
     /// 是否为 HTML 内容
     pub fn is_html(&self) -> bool {
         self.content_type()
-            .map(|ct| ct.contains("text/html"))
-            .unwrap_or(false)
+            .is_some_and(|ct| ct.to_ascii_lowercase().contains("text/html"))
     }
 }

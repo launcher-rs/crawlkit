@@ -4,7 +4,7 @@
 //!
 //! # 快速上手
 //! ```rust,no_run
-//! // 初始化 info 级别日志
+//! // 初始化 info 级别日志（幂等，多次调用安全）
 //! crawlkit::log::init();
 //!
 //! // 使用 RUST_LOG 环境变量自定义过滤
@@ -22,6 +22,8 @@ use tracing_subscriber::EnvFilter;
 /// 使用 `RUST_LOG` 环境变量可覆盖默认级别。
 /// 若未设置 `RUST_LOG`，则使用 `crawlkit=info` 作为默认过滤规则。
 ///
+/// 此函数幂等，多次调用安全（内部使用 `try_init`）。
+///
 /// # 示例
 /// ```rust,no_run
 /// crawlkit::log::init();
@@ -30,7 +32,7 @@ pub fn init() {
     let filter = EnvFilter::try_from_default_env()
         .unwrap_or_else(|_| EnvFilter::new("crawlkit=info"));
 
-    fmt().with_env_filter(filter).init();
+    let _ = fmt().with_env_filter(filter).try_init();
 }
 
 /// 使用 `RUST_LOG` 环境变量初始化日志
@@ -45,7 +47,7 @@ pub fn init_with_env() {
     let filter = EnvFilter::try_from_default_env()
         .unwrap_or_else(|_| EnvFilter::new("info"));
 
-    fmt().with_env_filter(filter).init();
+    let _ = fmt().with_env_filter(filter).try_init();
 }
 
 /// 初始化 DEBUG 级别日志
@@ -60,7 +62,7 @@ pub fn init_debug() {
     let filter = EnvFilter::try_from_default_env()
         .unwrap_or_else(|_| EnvFilter::new("crawlkit=debug"));
 
-    fmt().with_env_filter(filter).init();
+    let _ = fmt().with_env_filter(filter).try_init();
 }
 
 /// 初始化带时间戳的日志（INFO 级别）
@@ -75,9 +77,9 @@ pub fn init_with_timestamp() {
     let filter = EnvFilter::try_from_default_env()
         .unwrap_or_else(|_| EnvFilter::new("crawlkit=info"));
 
-    fmt()
+    let _ = fmt()
         .with_env_filter(filter)
         .with_target(true)
         .with_thread_ids(false)
-        .init();
+        .try_init();
 }

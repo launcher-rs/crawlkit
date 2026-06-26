@@ -26,9 +26,16 @@ pub struct WreqClient {
 }
 
 impl WreqClient {
-    /// 创建默认配置的客户端
+    /// 创建默认配置的客户端（构建失败时 panic）
+    ///
+    /// 仅适用于已知配置正确的场景。推荐使用 [`try_new`](Self::try_new)。
     pub fn new() -> Self {
-        Self::builder().build().expect("创建 wreq 客户端失败")
+        Self::try_new().expect("创建 wreq 客户端失败")
+    }
+
+    /// 创建默认配置的客户端（不 panic）
+    pub fn try_new() -> Result<Self> {
+        Self::builder().build()
     }
 
     /// 获取配置构建器
@@ -70,10 +77,12 @@ impl HttpClient for WreqClient {
                 .iter()
                 .map(|(k, v)| (k.to_string(), v.to_str().unwrap_or("").to_string()))
                 .collect();
+            // 注意: wreq 的 `uri()` 返回原始请求 URI，非重定向后的最终 URL
+            // 这是 wreq API 的限制，与 reqwest 的 `resp.url()` 行为不同
             let url = resp.uri().to_string();
             let body = resp.text().await?;
             Ok::<_, anyhow::Error>(Response {
-                url: url.to_string(),
+                url,
                 status,
                 headers: response_headers,
                 body,
@@ -116,10 +125,11 @@ impl HttpClient for WreqClient {
                 .iter()
                 .map(|(k, v)| (k.to_string(), v.to_str().unwrap_or("").to_string()))
                 .collect();
+            // 注意: wreq 的 `uri()` 返回原始请求 URI，非重定向后的最终 URL
             let url = resp.uri().to_string();
             let body = resp.text().await?;
             Ok::<_, anyhow::Error>(Response {
-                url: url.to_string(),
+                url,
                 status,
                 headers: response_headers,
                 body,

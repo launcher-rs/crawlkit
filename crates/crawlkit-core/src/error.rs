@@ -42,6 +42,10 @@ pub enum CrawlError {
     /// 所有请求器均失败
     #[error("所有请求器均失败: {0}")]
     AllFetchersFailed(String),
+
+    /// 锁中毒
+    #[error("锁错误: {0}")]
+    Lock(String),
 }
 
 /// 框架统一的 Result 别名

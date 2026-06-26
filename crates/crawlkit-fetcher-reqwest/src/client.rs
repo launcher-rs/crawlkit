@@ -26,9 +26,16 @@ pub struct ReqwestClient {
 }
 
 impl ReqwestClient {
-    /// 创建默认配置的客户端
+    /// 创建默认配置的客户端（构建失败时 panic）
+    ///
+    /// 仅适用于已知配置正确的场景。推荐使用 [`try_new`](Self::try_new)。
     pub fn new() -> Self {
-        Self::builder().build().expect("创建 reqwest 客户端失败")
+        Self::try_new().expect("创建 reqwest 客户端失败")
+    }
+
+    /// 创建默认配置的客户端（不 panic）
+    pub fn try_new() -> Result<Self> {
+        Self::builder().build()
     }
 
     /// 获取配置构建器
