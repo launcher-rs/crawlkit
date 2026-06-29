@@ -43,4 +43,4 @@ pub mod html {
 pub mod collector;
 pub mod log;
 
-pub use collector::{Collector, Element};
+pub use collector::{Collector, Element, LimitRule};

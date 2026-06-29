@@ -351,6 +351,8 @@ dependencies = [
  "crawlkit-fetcher-reqwest",
  "crawlkit-fetcher-wreq",
  "crawlkit-parser",
+ "rand 0.8.6",
+ "regex",
  "reqwest",
  "serde",
  "serde_json",
