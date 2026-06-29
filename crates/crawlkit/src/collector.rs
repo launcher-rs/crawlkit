@@ -512,6 +512,20 @@ impl Collector {
             .push((xpath.to_string(), Arc::new(callback)));
     }
 
+    /// 注销 CSS 选择器回调（Colly 风格的 OnHTMLDetach）
+    ///
+    /// 移除之前通过 `on_html_element` 注册的匹配指定选择器的回调。
+    pub fn on_html_detach(&mut self, selector: &str) {
+        self.on_html_elements.retain(|(s, _)| s != selector);
+    }
+
+    /// 注销 XPath 回调（Colly 风格的 OnXMLDetach）
+    ///
+    /// 移除之前通过 `on_xml_element` 注册的匹配指定 XPath 的回调。
+    pub fn on_xml_detach(&mut self, xpath: &str) {
+        self.on_xml_elements.retain(|(s, _)| s != xpath);
+    }
+
     /// 注册抓取完成回调
     ///
     /// 在所有回调执行完毕后触发，可用于统计、清理等收尾操作。
@@ -597,6 +611,12 @@ impl Collector {
         if let Some(ref cb) = self.on_request {
             debug!("执行 on_request 回调");
             cb(req);
+        }
+
+        // 检查是否被回调中止
+        if req.aborted {
+            debug!(url = %req.url, "请求已被 on_request 回调中止");
+            return Ok(());
         }
 
         // 发送 HTTP 请求
@@ -984,8 +1004,8 @@ impl Collector {
     /// 并发运行 URL 批处理 —— Colly 风格的 Async + Wait
     ///
     /// 在 `Arc<Collector>` 上调用，通过信号量控制并发（取 LimitRule 中最大 parallelism）。
-    /// 所有请求共享 HTTP 后端、回调、visited 去重。
-    /// 返回 `(url, Result<Response, CrawlError>)` 列表。
+    /// 所有请求共享 HTTP 后端、**回调**、visited 去重（**`visit()` 触发完整回调链**）。
+    /// 结果请通过 `on_response` / `on_scraped` 等回调获取。
     ///
     /// # 示例
     /// ```rust,no_run
@@ -994,21 +1014,14 @@ impl Collector {
     ///
     /// #[tokio::main]
     /// async fn main() {
-    ///     let c = Arc::new(Collector::new());
+    ///     let mut c = Collector::new();
+    ///     c.on_response(|resp| println!("{}: {} bytes", resp.url, resp.body.len()));
+    ///     let c = Arc::new(c);
     ///     let urls = vec!["https://example.com".to_string()];
-    ///     let results = c.run(urls).await;
-    ///     for (url, result) in &results {
-    ///         match result {
-    ///             Ok(resp) => println!("{}: {} bytes", url, resp.body.len()),
-    ///             Err(e) => eprintln!("{}: {}", url, e),
-    ///         }
-    ///     }
+    ///     c.run(urls).await;
     /// }
     /// ```
-    pub async fn run(
-        self: Arc<Self>,
-        urls: Vec<String>,
-    ) -> Vec<(String, std::result::Result<Response, CrawlError>)> {
+    pub async fn run(self: Arc<Self>, urls: Vec<String>) {
         let max_parallel = self
             .limit_rules
             .iter()
@@ -1024,22 +1037,16 @@ impl Collector {
             let permit = sem.clone().acquire_owned().await.unwrap();
             let c = self.clone();
             handles.push(tokio::spawn(async move {
-                // visit() 触发回调链，但我们需要 raw Response
-                // 因此手动调用 client.get()
-                use std::collections::HashMap;
-                let result = c.client().get(&url, &HashMap::new()).await;
+                if let Err(e) = c.visit(&url).await {
+                    warn!("run 请求失败 [{}]: {e}", url);
+                }
                 drop(permit);
-                (url, result)
             }));
         }
 
-        let mut results = Vec::with_capacity(handles.len());
         for h in handles {
-            results.push(h.await.unwrap_or_else(|e| {
-                (String::new(), Err(CrawlError::Http(format!("task panicked: {e}"))))
-            }));
+            let _ = h.await;
         }
-        results
     }
 }
 

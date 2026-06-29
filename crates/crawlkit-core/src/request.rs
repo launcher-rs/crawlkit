@@ -17,6 +17,8 @@ pub struct Request {
     pub allow_revisit: bool,
     /// 用户自定义上下文，可在回调间传递数据
     pub context: HashMap<String, String>,
+    /// 是否已被回调中止（调用 `abort()` 后为 true）
+    pub aborted: bool,
 }
 
 impl Request {
@@ -28,6 +30,7 @@ impl Request {
             headers: HashMap::new(),
             allow_revisit: false,
             context: HashMap::new(),
+            aborted: false,
         }
     }
 
@@ -41,5 +44,12 @@ impl Request {
     pub fn set_context(mut self, key: &str, value: &str) -> Self {
         self.context.insert(key.to_string(), value.to_string());
         self
+    }
+
+    /// 中止当前请求处理
+    ///
+    /// 在 `on_request` 回调中调用，后续的 HTTP 请求和所有回调（on_response / on_html / on_scraped）都不会执行。
+    pub fn abort(&mut self) {
+        self.aborted = true;
     }
 }
