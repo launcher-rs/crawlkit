@@ -25,7 +25,7 @@ impl Response {
 
     /// 获取 Content-Type
     pub fn content_type(&self) -> Option<&str> {
-        self.headers.get("content-type").map(|s| s.as_str())
+        self.headers.get("content-type").map(String::as_str)
     }
 
     /// 是否为 HTML 内容

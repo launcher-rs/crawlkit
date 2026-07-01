@@ -72,9 +72,7 @@ impl LimitRule {
     pub fn matches(&self, domain: &str) -> bool {
         let pattern = self.domain_glob.replace('*', ".*");
         Regex::new(&pattern)
-            .ok()
-            .map(|re| re.is_match(domain))
-            .unwrap_or(false)
+            .is_ok_and(|re| re.is_match(domain))
     }
 }
 
@@ -186,7 +184,7 @@ impl<'a> Element<'a> {
             .and_then(|sel| {
                 doc.select(&sel)
                     .next()
-                    .and_then(|el| el.value().attr(attr_name).map(|v| v.to_string()))
+                    .and_then(|el| el.value().attr(attr_name).map(ToString::to_string))
             })
     }
 
@@ -227,7 +225,7 @@ impl<'a> Element<'a> {
                 .filter_map(|el| {
                     el.value()
                         .attr(attr_name)
-                        .map(|v| v.to_string())
+                        .map(ToString::to_string)
                 })
                 .collect(),
             Err(_) => Vec::new(),
@@ -336,6 +334,16 @@ impl Collector {
     pub fn new() -> Self {
         Self::reqwest()
     }
+}
+
+#[cfg(feature = "fetcher-reqwest")]
+impl Default for Collector {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl Collector {
 
     /// 使用 reqwest 后端构建 Collector
     ///
@@ -621,7 +629,11 @@ impl Collector {
 
         // 发送 HTTP 请求
         debug!("发送 HTTP 请求");
-        let response = match self.http_client.get(&req.url, &req.headers).await {
+        let response = match req.method.as_str() {
+            "POST" => self.http_client.post(&req.url, &req.headers, req.body.clone()).await,
+            _ => self.http_client.get(&req.url, &req.headers).await,
+        };
+        let response = match response {
             Ok(resp) => resp,
             Err(e) => {
                 warn!(error = %e, "HTTP 请求失败");
@@ -709,7 +721,7 @@ impl Collector {
                                 Ok(xpath_expr) => {
                                     match xpath_expr.apply(&tree) {
                                         Ok(item_set) => {
-                                            warn!(xpath = %xpath_expr_str, count = item_set.len(), "on_xml_elements 匹配");
+                                            debug!(xpath = %xpath_expr_str, count = item_set.len(), "on_xml_elements 匹配");
                                             for (idx, item) in item_set.iter().enumerate() {
                                                 let element = xpath_item_to_element(
                                                     item,
@@ -842,22 +854,24 @@ impl Collector {
         let delay = self
             .last_request_time
             .lock()
-            .unwrap()
-            .get(&domain)
-            .and_then(|last| {
-                let elapsed = last.elapsed();
-                self.find_matching_rule(&domain).and_then(|rule| {
-                    if elapsed < rule.delay {
-                        let mut d = rule.delay - elapsed;
-                        if rule.random_delay > Duration::ZERO {
-                            let extra =
-                                rand::random::<f64>() * rule.random_delay.as_secs_f64();
-                            d += Duration::from_secs_f64(extra);
+            .map_err(|e| warn!(error = %e, "last_request_time 锁中毒"))
+            .ok()
+            .and_then(|guard| {
+                guard.get(&domain).and_then(|last| {
+                    let elapsed = last.elapsed();
+                    self.find_matching_rule(&domain).and_then(|rule| {
+                        if elapsed < rule.delay {
+                            let mut d = rule.delay.checked_sub(elapsed)?;
+                            if rule.random_delay > Duration::ZERO {
+                                let extra =
+                                    rand::random::<f64>() * rule.random_delay.as_secs_f64();
+                                d += Duration::from_secs_f64(extra);
+                            }
+                            Some(d)
+                        } else {
+                            None
                         }
-                        Some(d)
-                    } else {
-                        None
-                    }
+                    })
                 })
             });
         if let Some(d) = delay {
@@ -865,23 +879,24 @@ impl Collector {
         }
 
         // 更新最后请求时间
-        self.last_request_time
-            .lock()
-            .unwrap()
-            .insert(domain.clone(), Instant::now());
+        if let Ok(mut guard) = self.last_request_time.lock() {
+            guard.insert(domain.clone(), Instant::now());
+        }
 
         // 并发信号量（锁在 await 前释放）
         let parallelism = self
             .find_matching_rule(&domain)
-            .map(|r| r.parallelism.max(1))
-            .unwrap_or(1);
-        let sem = self
-            .domain_semaphores
-            .lock()
-            .unwrap()
-            .entry(domain.clone())
-            .or_insert_with(|| Arc::new(Semaphore::new(parallelism)))
-            .clone();
+            .map_or(1, |r| r.parallelism.max(1));
+        let sem = match self.domain_semaphores.lock() {
+            Ok(mut guard) => guard
+                .entry(domain.clone())
+                .or_insert_with(|| Arc::new(Semaphore::new(parallelism)))
+                .clone(),
+            Err(e) => {
+                warn!(error = %e, "domain_semaphores 锁中毒");
+                return;
+            }
+        };
         let _permit = sem.acquire().await;
         // permit 在此释放
     }
@@ -1034,7 +1049,13 @@ impl Collector {
         let mut handles = Vec::with_capacity(urls.len());
 
         for url in urls {
-            let permit = sem.clone().acquire_owned().await.unwrap();
+            let permit = match sem.clone().acquire_owned().await {
+                Ok(p) => p,
+                Err(_) => {
+                    warn!("信号量已关闭，跳过剩余请求");
+                    break;
+                }
+            };
             let c = self.clone();
             handles.push(tokio::spawn(async move {
                 if let Err(e) = c.visit(&url).await {
@@ -1104,6 +1125,9 @@ impl Collector {
         for (k, v) in &self.default_headers {
             req.headers.insert(k.clone(), v.clone());
         }
+        for (k, v) in self.http_client.default_headers() {
+            req.headers.entry(k).or_insert(v);
+        }
         let response = self.http_client.get(url, &req.headers).await?;
         let links = extract_absolute_links(
             &response.body,
@@ -1124,6 +1148,9 @@ impl Collector {
         for (k, v) in &self.default_headers {
             req.headers.insert(k.clone(), v.clone());
         }
+        for (k, v) in self.http_client.default_headers() {
+            req.headers.entry(k).or_insert(v);
+        }
         let response = self.http_client.get(url, &req.headers).await?;
         let links = extract_absolute_links(
             &response.body,
@@ -1140,7 +1167,11 @@ impl Collector {
     /// 不触发回调，直接返回 Article 结构。
     pub async fn get_article(&self, url: &str) -> Result<Article> {
         debug!(url, "提取文章");
-        let response = self.http_client.get(url, &self.default_headers).await?;
+        let mut headers = self.default_headers.clone();
+        for (k, v) in self.http_client.default_headers() {
+            headers.entry(k).or_insert(v);
+        }
+        let response = self.http_client.get(url, &headers).await?;
         let article = extract_article(&response.body, &response.url);
         debug!(title = %article.title, "文章提取完成");
         Ok(article)
@@ -1151,7 +1182,10 @@ impl Collector {
         debug!(count = urls.len(), "开始批量抓取文章");
         let mut handles = Vec::new();
         let client = self.http_client.clone();
-        let headers = self.default_headers.clone();
+        let mut headers = self.default_headers.clone();
+        for (k, v) in self.http_client.default_headers() {
+            headers.entry(k).or_insert(v);
+        }
         let concurrency = if self.max_concurrency == 0 {
             urls.len().min(DEFAULT_MAX_CONCURRENCY)
         } else {

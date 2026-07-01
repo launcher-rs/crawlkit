@@ -188,20 +188,21 @@ pub struct Article {
 /// 1. 优先查找 `<article>` 标签
 /// 2. 查找 `article-body` / `post-content` / `entry-content` 等常见 class
 /// 3. 查找 `<h1>` 作为标题，最大的 `<div>` 块作为正文
+///
+/// `base_url` 参数预留用于将文章中的相对路径转为绝对路径，当前版本暂未使用。
 pub fn extract_article(html_content: &str, _base_url: &str) -> Article {
     let document = Html::parse_document(html_content);
-    let mut article = Article::default();
 
-    article.title = extract_title(&document);
-    article.content = extract_content_heuristic(&document);
-    article.date = extract_meta_content(&document, "date")
-        .or_else(|| extract_meta_content(&document, "article:published_time"));
-    article.author = extract_meta_content(&document, "author")
-        .or_else(|| extract_meta_content(&document, "article:author"));
-    article.description = extract_meta_content(&document, "description")
-        .or_else(|| extract_meta_content(&document, "og:description"));
-
-    article
+    Article {
+        title: extract_title(&document),
+        content: extract_content_heuristic(&document),
+        date: extract_meta_content(&document, "date")
+            .or_else(|| extract_meta_content(&document, "article:published_time")),
+        author: extract_meta_content(&document, "author")
+            .or_else(|| extract_meta_content(&document, "article:author")),
+        description: extract_meta_content(&document, "description")
+            .or_else(|| extract_meta_content(&document, "og:description")),
+    }
 }
 
 /// 提取页面标题：优先 og:title → h1 → <title>
@@ -415,7 +416,7 @@ pub fn extract_attributes(raw_html: &str, selector: &str, attr: &str) -> Result<
 
     let values: Vec<String> = document
         .select(&sel)
-        .filter_map(|el| el.value().attr(attr).map(|v| v.to_string()))
+        .filter_map(|el| el.value().attr(attr).map(ToString::to_string))
         .filter(|v| !v.is_empty())
         .collect();
 
@@ -434,7 +435,7 @@ fn element_to_text(element: &scraper::ElementRef) -> String {
     }
     let lines: Vec<&str> = result
         .lines()
-        .map(|l| l.trim())
+        .map(str::trim)
         .filter(|l| !l.is_empty())
         .collect();
     lines.join("\n")

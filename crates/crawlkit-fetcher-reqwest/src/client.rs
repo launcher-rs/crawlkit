@@ -279,15 +279,14 @@ impl ReqwestClientBuilder {
 }
 
 #[cfg(test)]
-fn has_user_agent(headers: &HashMap<String, String>) -> bool {
-    headers
-        .keys()
-        .any(|key| key.eq_ignore_ascii_case("user-agent"))
-}
-
-#[cfg(test)]
 mod tests {
     use super::*;
+
+    fn has_user_agent(headers: &HashMap<String, String>) -> bool {
+        headers
+            .keys()
+            .any(|key| key.eq_ignore_ascii_case("user-agent"))
+    }
 
     #[test]
     fn has_user_agent_is_case_insensitive() {

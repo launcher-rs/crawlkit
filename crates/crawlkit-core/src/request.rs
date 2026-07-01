@@ -17,6 +17,8 @@ pub struct Request {
     pub allow_revisit: bool,
     /// 用户自定义上下文，可在回调间传递数据
     pub context: HashMap<String, String>,
+    /// POST 请求体
+    pub body: Vec<u8>,
     /// 是否已被回调中止（调用 `abort()` 后为 true）
     pub aborted: bool,
 }
@@ -30,6 +32,20 @@ impl Request {
             headers: HashMap::new(),
             allow_revisit: false,
             context: HashMap::new(),
+            body: Vec::new(),
+            aborted: false,
+        }
+    }
+
+    /// 创建 POST 请求
+    pub fn post(url: &str, body: Vec<u8>) -> Self {
+        Self {
+            url: url.to_string(),
+            method: "POST".into(),
+            headers: HashMap::new(),
+            allow_revisit: false,
+            context: HashMap::new(),
+            body,
             aborted: false,
         }
     }

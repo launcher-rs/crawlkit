@@ -55,9 +55,7 @@ impl CompositeFetcher {
             }
         }
         Err(CrawlError::AllFetchersFailed(
-            last_error
-                .map(|e| e.to_string())
-                .unwrap_or_else(|| "无可用请求器".to_string()),
+            last_error.map_or_else(|| "无可用请求器".to_string(), |e| e.to_string()),
         ))
     }
 
@@ -88,9 +86,7 @@ impl CompositeFetcher {
             }
         }
         Err(CrawlError::AllFetchersFailed(
-            last_error
-                .map(|e| e.to_string())
-                .unwrap_or_else(|| "无可用请求器".to_string()),
+            last_error.map_or_else(|| "无可用请求器".to_string(), |e| e.to_string()),
         ))
     }
 
@@ -184,7 +180,7 @@ mod tests {
             self.get(_url, _headers).await
         }
 
-        fn name(&self) -> &str {
+    fn name(&self) -> &'static str {
             self.name
         }
     }
