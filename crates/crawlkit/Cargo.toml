@@ -3,6 +3,7 @@ name = "crawlkit"
 version = "0.1.0"
 edition = "2024"
 description = "crawlkit Rust 爬虫工具包 — 集成入口（facade crate）"
+license = "MIT"
 
 [dependencies]
 crawlkit-core = { path = "../crawlkit-core",version = "0.1.0" }

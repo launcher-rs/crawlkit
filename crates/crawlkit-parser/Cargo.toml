@@ -3,6 +3,7 @@ name = "crawlkit-parser"
 version = "0.1.0"
 edition = "2024"
 description = "crawlkit HTML 解析与内容提取模块"
+license = "MIT"
 
 [dependencies]
 crawlkit-core = { path = "../crawlkit-core" ,version = "0.1.0"}

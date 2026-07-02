@@ -3,6 +3,7 @@ name = "crawlkit-fetcher"
 version = "0.1.0"
 edition = "2024"
 description = "crawlkit 组合请求器，可串联多个 HTTP 客户端实现故障转移"
+license = "MIT"
 
 [dependencies]
 crawlkit-core = { path = "../crawlkit-core",version = "0.1.0" }
