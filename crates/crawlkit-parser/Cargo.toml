@@ -5,7 +5,7 @@ edition = "2024"
 description = "crawlkit HTML 解析与内容提取模块"
 
 [dependencies]
-crawlkit-core = { path = "../crawlkit-core" }
+crawlkit-core = { path = "../crawlkit-core" ,version = "0.1.0"}
 scraper = "0.22"
 dom_smoothie = "0.18.0"
 url = "2"

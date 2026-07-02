@@ -5,7 +5,7 @@ edition = "2024"
 description = "crawlkit 组合请求器，可串联多个 HTTP 客户端实现故障转移"
 
 [dependencies]
-crawlkit-core = { path = "../crawlkit-core" }
+crawlkit-core = { path = "../crawlkit-core",version = "0.1.0" }
 async-trait = "0.1"
 tracing = "0.1"
 
