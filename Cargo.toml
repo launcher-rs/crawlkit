@@ -7,7 +7,7 @@ members = [
     "crates/crawlkit",
     "crates/crawlkit-fetcher-wreq",
 ]
-resolver = "2"
+resolver = "3"
 
 [workspace.lints.clippy]
 # 使用 pedantic 组合作为基线（整体 warn）

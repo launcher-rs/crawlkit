@@ -54,9 +54,10 @@ impl CompositeFetcher {
                 }
             }
         }
-        Err(CrawlError::AllFetchersFailed(
-            last_error.map_or_else(|| "无可用请求器".to_string(), |e| e.to_string()),
-        ))
+        Err(CrawlError::AllFetchersFailed(last_error.map_or_else(
+            || "无可用请求器".to_string(),
+            |e| e.to_string(),
+        )))
     }
 
     /// 依次尝试各请求器发送 POST
@@ -85,9 +86,10 @@ impl CompositeFetcher {
                 }
             }
         }
-        Err(CrawlError::AllFetchersFailed(
-            last_error.map_or_else(|| "无可用请求器".to_string(), |e| e.to_string()),
-        ))
+        Err(CrawlError::AllFetchersFailed(last_error.map_or_else(
+            || "无可用请求器".to_string(),
+            |e| e.to_string(),
+        )))
     }
 
     /// 获取请求器数量
@@ -116,7 +118,7 @@ impl HttpClient for CompositeFetcher {
         CompositeFetcher::post(self, url, headers, body).await
     }
 
-    fn name(&self) -> &str {
+    fn name(&self) -> &'static str {
         "composite"
     }
 }
@@ -180,7 +182,7 @@ mod tests {
             self.get(_url, _headers).await
         }
 
-    fn name(&self) -> &'static str {
+        fn name(&self) -> &'static str {
             self.name
         }
     }

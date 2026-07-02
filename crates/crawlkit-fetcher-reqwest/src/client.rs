@@ -91,7 +91,11 @@ impl HttpClient for ReqwestClient {
             .retry(&ExponentialBuilder::default().with_max_times(max_retries))
             .await;
         match &result {
-            Ok(resp) => debug!(status = resp.status, body_len = resp.body.len(), "GET 请求成功"),
+            Ok(resp) => debug!(
+                status = resp.status,
+                body_len = resp.body.len(),
+                "GET 请求成功"
+            ),
             Err(e) => warn!(error = %e, "GET 请求失败（已重试 {max_retries} 次）"),
         }
         result.map_err(|e| {
@@ -139,7 +143,11 @@ impl HttpClient for ReqwestClient {
             .retry(&ExponentialBuilder::default().with_max_times(max_retries))
             .await;
         match &result {
-            Ok(resp) => debug!(status = resp.status, body_len = resp.body.len(), "POST 请求成功"),
+            Ok(resp) => debug!(
+                status = resp.status,
+                body_len = resp.body.len(),
+                "POST 请求成功"
+            ),
             Err(e) => warn!(error = %e, "POST 请求失败（已重试 {max_retries} 次）"),
         }
         result.map_err(|e| {
@@ -156,7 +164,10 @@ impl HttpClient for ReqwestClient {
         if let Some(ref ua) = self.user_agent {
             headers.insert("User-Agent".to_string(), ua.clone());
         } else if self.random_user_agent {
-            headers.insert("User-Agent".to_string(), random_desktop_user_agent().to_string());
+            headers.insert(
+                "User-Agent".to_string(),
+                random_desktop_user_agent().to_string(),
+            );
         }
         headers
     }
@@ -240,7 +251,7 @@ impl ReqwestClientBuilder {
 
         builder = builder.redirect(reqwest::redirect::Policy::limited(10));
         builder = builder.pool_idle_timeout(Duration::from_secs(90));
-        builder = builder.tcp_keepalive(Duration::from_secs(60));
+        builder = builder.tcp_keepalive(Duration::from_mins(1));
 
         let proxy_url = self.proxy_url.or_else(|| env::var("PROXY_URL").ok());
         if let Some(proxy_url) = proxy_url {

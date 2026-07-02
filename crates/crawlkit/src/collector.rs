@@ -19,7 +19,9 @@ use crawlkit_core::response::Response;
 use crawlkit_fetcher_reqwest::ReqwestClient;
 #[cfg(feature = "fetcher-wreq")]
 use crawlkit_fetcher_wreq::WreqClient;
-use crawlkit_parser::html::{extract_absolute_links, extract_article, sanitize_for_xpath, Article, LinkSelectorType};
+use crawlkit_parser::html::{
+    Article, LinkSelectorType, extract_absolute_links, extract_article, sanitize_for_xpath,
+};
 use crawlkit_parser::scraper::{Html, Selector};
 use crawlkit_parser::skyscraper::html as xpath_html;
 use crawlkit_parser::skyscraper::xpath::{self as skyscraper_xpath, XpathItemTree};
@@ -71,8 +73,7 @@ impl LimitRule {
     /// 检查域名是否匹配此规则
     pub fn matches(&self, domain: &str) -> bool {
         let pattern = self.domain_glob.replace('*', ".*");
-        Regex::new(&pattern)
-            .is_ok_and(|re| re.is_match(domain))
+        Regex::new(&pattern).is_ok_and(|re| re.is_match(domain))
     }
 }
 
@@ -162,13 +163,7 @@ impl<'a> Element<'a> {
             Ok(sel) => doc
                 .select(&sel)
                 .next()
-                .map(|el| {
-                    el.text()
-                        .collect::<Vec<_>>()
-                        .join("")
-                        .trim()
-                        .to_string()
-                })
+                .map(|el| el.text().collect::<Vec<_>>().join("").trim().to_string())
                 .unwrap_or_default(),
             Err(_) => String::new(),
         }
@@ -179,13 +174,11 @@ impl<'a> Element<'a> {
     /// 类似 go-colly 的 `Element.ChildAttr(selector, attrName)`
     pub fn child_attr(&self, selector: &str, attr_name: &str) -> Option<String> {
         let doc = Html::parse_document(&self.html);
-        Selector::parse(selector)
-            .ok()
-            .and_then(|sel| {
-                doc.select(&sel)
-                    .next()
-                    .and_then(|el| el.value().attr(attr_name).map(ToString::to_string))
-            })
+        Selector::parse(selector).ok().and_then(|sel| {
+            doc.select(&sel)
+                .next()
+                .and_then(|el| el.value().attr(attr_name).map(ToString::to_string))
+        })
     }
 
     /// 获取匹配指定 CSS 选择器的所有子元素的文本
@@ -197,17 +190,8 @@ impl<'a> Element<'a> {
             Ok(sel) => doc
                 .select(&sel)
                 .filter_map(|el| {
-                    let text = el
-                        .text()
-                        .collect::<Vec<_>>()
-                        .join("")
-                        .trim()
-                        .to_string();
-                    if text.is_empty() {
-                        None
-                    } else {
-                        Some(text)
-                    }
+                    let text = el.text().collect::<Vec<_>>().join("").trim().to_string();
+                    if text.is_empty() { None } else { Some(text) }
                 })
                 .collect(),
             Err(_) => Vec::new(),
@@ -222,11 +206,7 @@ impl<'a> Element<'a> {
         match Selector::parse(selector) {
             Ok(sel) => doc
                 .select(&sel)
-                .filter_map(|el| {
-                    el.value()
-                        .attr(attr_name)
-                        .map(ToString::to_string)
-                })
+                .filter_map(|el| el.value().attr(attr_name).map(ToString::to_string))
                 .collect(),
             Err(_) => Vec::new(),
         }
@@ -234,9 +214,7 @@ impl<'a> Element<'a> {
 
     /// 获取所有属性的迭代器
     pub fn attrs(&self) -> impl Iterator<Item = (&str, &str)> {
-        self.attrs
-            .iter()
-            .map(|(k, v)| (k.as_str(), v.as_str()))
+        self.attrs.iter().map(|(k, v)| (k.as_str(), v.as_str()))
     }
 }
 
@@ -303,7 +281,6 @@ pub struct Collector {
     max_depth: usize,
 
     // ── 以下为 Colly 风格新增字段 ──
-
     /// 按域名限速规则
     limit_rules: Vec<LimitRule>,
 
@@ -344,7 +321,6 @@ impl Default for Collector {
 }
 
 impl Collector {
-
     /// 使用 reqwest 后端构建 Collector
     ///
     /// 需要启用 `fetcher-reqwest` feature（默认启用）。
@@ -630,7 +606,11 @@ impl Collector {
         // 发送 HTTP 请求
         debug!("发送 HTTP 请求");
         let response = match req.method.as_str() {
-            "POST" => self.http_client.post(&req.url, &req.headers, req.body.clone()).await,
+            "POST" => {
+                self.http_client
+                    .post(&req.url, &req.headers, req.body.clone())
+                    .await
+            }
             _ => self.http_client.get(&req.url, &req.headers).await,
         };
         let response = match response {
@@ -644,7 +624,11 @@ impl Collector {
             }
         };
 
-        debug!(status = response.status, body_len = response.body.len(), "收到响应");
+        debug!(
+            status = response.status,
+            body_len = response.body.len(),
+            "收到响应"
+        );
 
         // 标记已访问
         {
@@ -697,9 +681,8 @@ impl Collector {
                                     .map(|(k, v)| (k.local.to_string(), v.to_string()))
                                     .collect();
                                 let html_str = element_ref.html();
-                                let element = Element::new(
-                                    name, &response.url, text, attrs, html_str, idx,
-                                );
+                                let element =
+                                    Element::new(name, &response.url, text, attrs, html_str, idx);
                                 cb(&element);
                             }
                         }
@@ -718,27 +701,25 @@ impl Collector {
                         let tree = XpathItemTree::from(&doc);
                         for (xpath_expr_str, cb) in &self.on_xml_elements {
                             match skyscraper_xpath::parse(xpath_expr_str) {
-                                Ok(xpath_expr) => {
-                                    match xpath_expr.apply(&tree) {
-                                        Ok(item_set) => {
-                                            debug!(xpath = %xpath_expr_str, count = item_set.len(), "on_xml_elements 匹配");
-                                            for (idx, item) in item_set.iter().enumerate() {
-                                                let element = xpath_item_to_element(
-                                                    item,
-                                                    &tree,
-                                                    &response.url,
-                                                    idx,
-                                                );
-                                                if let Some(el) = element {
-                                                    cb(&el);
-                                                }
+                                Ok(xpath_expr) => match xpath_expr.apply(&tree) {
+                                    Ok(item_set) => {
+                                        debug!(xpath = %xpath_expr_str, count = item_set.len(), "on_xml_elements 匹配");
+                                        for (idx, item) in item_set.iter().enumerate() {
+                                            let element = xpath_item_to_element(
+                                                item,
+                                                &tree,
+                                                &response.url,
+                                                idx,
+                                            );
+                                            if let Some(el) = element {
+                                                cb(&el);
                                             }
                                         }
-                                        Err(e) => {
-                                            warn!(xpath = %xpath_expr_str, error = %e, "XPath 执行失败");
-                                        }
                                     }
-                                }
+                                    Err(e) => {
+                                        warn!(xpath = %xpath_expr_str, error = %e, "XPath 执行失败");
+                                    }
+                                },
                                 Err(e) => {
                                     warn!(xpath = %xpath_expr_str, error = %e, "XPath 解析失败");
                                 }
@@ -811,7 +792,10 @@ impl Collector {
 
     /// 域名过滤器检查
     fn is_domain_allowed(&self, url: &str) -> bool {
-        let domain = match url::Url::parse(url).ok().and_then(|u| u.host_str().map(String::from)) {
+        let domain = match url::Url::parse(url)
+            .ok()
+            .and_then(|u| u.host_str().map(String::from))
+        {
             Some(d) => d,
             None => return true,
         };
@@ -845,7 +829,10 @@ impl Collector {
 
     /// 限速等待（按域名延迟 + 并发信号量）
     async fn enforce_limit(&self, url: &str) {
-        let domain = match url::Url::parse(url).ok().and_then(|u| u.host_str().map(String::from)) {
+        let domain = match url::Url::parse(url)
+            .ok()
+            .and_then(|u| u.host_str().map(String::from))
+        {
             Some(d) => d,
             None => return,
         };
@@ -863,8 +850,7 @@ impl Collector {
                         if elapsed < rule.delay {
                             let mut d = rule.delay.checked_sub(elapsed)?;
                             if rule.random_delay > Duration::ZERO {
-                                let extra =
-                                    rand::random::<f64>() * rule.random_delay.as_secs_f64();
+                                let extra = rand::random::<f64>() * rule.random_delay.as_secs_f64();
                                 d += Duration::from_secs_f64(extra);
                             }
                             Some(d)
@@ -1536,11 +1522,10 @@ mod tests {
         </body></html>"#;
         let mut c = Collector::with_client(MockClient::ok(html));
         c.on_html_element("a", move |e| {
-            results_clone.lock().unwrap().push((
-                e.name.clone(),
-                e.index,
-                e.text().to_string(),
-            ));
+            results_clone
+                .lock()
+                .unwrap()
+                .push((e.name.clone(), e.index, e.text().to_string()));
         });
         c.visit("http://test.com").await.unwrap();
 
@@ -1607,7 +1592,10 @@ mod tests {
         </body></html>"#;
         let mut c = Collector::with_client(MockClient::ok(html));
         c.on_html_element("a", move |e| {
-            let attrs: Vec<_> = e.attrs().map(|(k, v)| (k.to_string(), v.to_string())).collect();
+            let attrs: Vec<_> = e
+                .attrs()
+                .map(|(k, v)| (k.to_string(), v.to_string()))
+                .collect();
             *result_clone.lock().unwrap() = attrs;
         });
         c.visit("http://test.com").await.unwrap();
@@ -1664,8 +1652,22 @@ mod tests {
 
         let results = result.lock().unwrap();
         assert_eq!(results.len(), 2);
-        assert_eq!(results[0], ("/docs/".to_string(), "http://test.com/docs/".to_string(), "Docs".to_string()));
-        assert_eq!(results[1], ("/articles/".to_string(), "http://test.com/articles/".to_string(), "Articles".to_string()));
+        assert_eq!(
+            results[0],
+            (
+                "/docs/".to_string(),
+                "http://test.com/docs/".to_string(),
+                "Docs".to_string()
+            )
+        );
+        assert_eq!(
+            results[1],
+            (
+                "/articles/".to_string(),
+                "http://test.com/articles/".to_string(),
+                "Articles".to_string()
+            )
+        );
     }
 
     #[tokio::test]
@@ -1692,7 +1694,10 @@ mod tests {
         c.on_xml_element("//a", move |e| {
             let href = e.attr("href").unwrap_or("").to_string();
             let text = e.text().to_string();
-            result_clone.lock().unwrap().push(format!("{}:{}", href, text));
+            result_clone
+                .lock()
+                .unwrap()
+                .push(format!("{}:{}", href, text));
         });
         c.visit("http://test.com").await.unwrap();
 

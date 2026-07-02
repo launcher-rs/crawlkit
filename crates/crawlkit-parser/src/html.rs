@@ -8,12 +8,11 @@ use scraper::{Html, Selector};
 use skyscraper::{
     html as xpath_html,
     xpath::{
-        self,
+        self, XpathItemTree,
         grammar::{
-            data_model::{Node, XpathItem},
             NonTreeXpathNode, XpathItemTreeNodeData,
+            data_model::{Node, XpathItem},
         },
-        XpathItemTree,
     },
 };
 use url::Url;
@@ -53,10 +52,10 @@ pub fn try_extract_links(html_content: &str, selector: &str) -> Result<Vec<Strin
     let mut links = Vec::new();
 
     for element in document.select(&sel) {
-        if let Some(href) = element.value().attr("href") {
-            if seen.insert(href.to_string()) {
-                links.push(href.to_string());
-            }
+        if let Some(href) = element.value().attr("href")
+            && seen.insert(href.to_string())
+        {
+            links.push(href.to_string());
         }
     }
 
@@ -146,10 +145,10 @@ pub fn extract_absolute_links(
     let mut absolute_links = Vec::new();
 
     for link in links {
-        if let Some(url) = resolve_url(base_url, &link) {
-            if seen.insert(url.clone()) {
-                absolute_links.push(url);
-            }
+        if let Some(url) = resolve_url(base_url, &link)
+            && seen.insert(url.clone())
+        {
+            absolute_links.push(url);
         }
     }
 
@@ -207,29 +206,27 @@ pub fn extract_article(html_content: &str, _base_url: &str) -> Article {
 
 /// 提取页面标题：优先 og:title → h1 → <title>
 fn extract_title(document: &Html) -> String {
-    if let Ok(sel) = Selector::parse(r#"meta[property="og:title"]"#) {
-        if let Some(el) = document.select(&sel).next() {
-            if let Some(content) = el.value().attr("content") {
-                if !content.is_empty() {
-                    return content.to_string();
-                }
-            }
+    if let Ok(sel) = Selector::parse(r#"meta[property="og:title"]"#)
+        && let Some(el) = document.select(&sel).next()
+        && let Some(content) = el.value().attr("content")
+        && !content.is_empty()
+    {
+        return content.to_string();
+    }
+    if let Ok(sel) = Selector::parse("h1")
+        && let Some(el) = document.select(&sel).next()
+    {
+        let text: String = el.text().collect::<Vec<_>>().join("").trim().to_string();
+        if !text.is_empty() {
+            return text;
         }
     }
-    if let Ok(sel) = Selector::parse("h1") {
-        if let Some(el) = document.select(&sel).next() {
-            let text: String = el.text().collect::<Vec<_>>().join("").trim().to_string();
-            if !text.is_empty() {
-                return text;
-            }
-        }
-    }
-    if let Ok(sel) = Selector::parse("title") {
-        if let Some(el) = document.select(&sel).next() {
-            let text: String = el.text().collect::<Vec<_>>().join("").trim().to_string();
-            if !text.is_empty() {
-                return text;
-            }
+    if let Ok(sel) = Selector::parse("title")
+        && let Some(el) = document.select(&sel).next()
+    {
+        let text: String = el.text().collect::<Vec<_>>().join("").trim().to_string();
+        if !text.is_empty() {
+            return text;
         }
     }
     String::new()
@@ -238,12 +235,12 @@ fn extract_title(document: &Html) -> String {
 /// 提取正文：按优先级尝试多种策略
 fn extract_content_heuristic(document: &Html) -> String {
     // 策略 1：<article> 标签
-    if let Ok(sel) = Selector::parse("article") {
-        if let Some(el) = document.select(&sel).next() {
-            let text = element_to_text(&el);
-            if text.len() > 100 {
-                return text;
-            }
+    if let Ok(sel) = Selector::parse("article")
+        && let Some(el) = document.select(&sel).next()
+    {
+        let text = element_to_text(&el);
+        if text.len() > 100 {
+            return text;
         }
     }
 
@@ -262,12 +259,12 @@ fn extract_content_heuristic(document: &Html) -> String {
     ];
 
     for selector_str in content_selectors {
-        if let Ok(sel) = Selector::parse(selector_str) {
-            if let Some(el) = document.select(&sel).next() {
-                let text = element_to_text(&el);
-                if text.len() > 100 {
-                    return text;
-                }
+        if let Ok(sel) = Selector::parse(selector_str)
+            && let Some(el) = document.select(&sel).next()
+        {
+            let text = element_to_text(&el);
+            if text.len() > 100 {
+                return text;
             }
         }
     }
@@ -293,25 +290,23 @@ fn extract_content_heuristic(document: &Html) -> String {
 /// 从 <meta> 标签提取 content 属性
 fn extract_meta_content(document: &Html, name: &str) -> Option<String> {
     let sel_str = format!(r#"meta[name="{name}"]"#);
-    if let Ok(sel) = Selector::parse(&sel_str) {
-        if let Some(el) = document.select(&sel).next() {
-            if let Some(content) = el.value().attr("content") {
-                let content = content.trim().to_string();
-                if !content.is_empty() {
-                    return Some(content);
-                }
-            }
+    if let Ok(sel) = Selector::parse(&sel_str)
+        && let Some(el) = document.select(&sel).next()
+        && let Some(content) = el.value().attr("content")
+    {
+        let content = content.trim().to_string();
+        if !content.is_empty() {
+            return Some(content);
         }
     }
     let sel_str = format!(r#"meta[property="{name}"]"#);
-    if let Ok(sel) = Selector::parse(&sel_str) {
-        if let Some(el) = document.select(&sel).next() {
-            if let Some(content) = el.value().attr("content") {
-                let content = content.trim().to_string();
-                if !content.is_empty() {
-                    return Some(content);
-                }
-            }
+    if let Ok(sel) = Selector::parse(&sel_str)
+        && let Some(el) = document.select(&sel).next()
+        && let Some(content) = el.value().attr("content")
+    {
+        let content = content.trim().to_string();
+        if !content.is_empty() {
+            return Some(content);
         }
     }
     None
@@ -395,11 +390,7 @@ pub fn extract_texts(raw_html: &str, selector: &str) -> Result<Vec<String>> {
         .select(&sel)
         .filter_map(|el| {
             let text: String = el.text().collect::<Vec<_>>().join("").trim().to_string();
-            if text.is_empty() {
-                None
-            } else {
-                Some(text)
-            }
+            if text.is_empty() { None } else { Some(text) }
         })
         .collect();
 

@@ -1,7 +1,7 @@
 [package]
 name = "crawlkit-fetcher-wreq"
-version = "0.2.0"
-edition = "2021"
+version = "0.1.0"
+edition = "2024"
 description = "crawlkit 基于 wreq 的 HTTP 客户端实现（TLS 指纹模拟）"
 
 [dependencies]

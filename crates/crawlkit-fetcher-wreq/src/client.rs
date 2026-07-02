@@ -93,7 +93,11 @@ impl HttpClient for WreqClient {
             .retry(&ExponentialBuilder::default().with_max_times(max_retries))
             .await;
         match &result {
-            Ok(resp) => debug!(status = resp.status, body_len = resp.body.len(), "GET 请求成功"),
+            Ok(resp) => debug!(
+                status = resp.status,
+                body_len = resp.body.len(),
+                "GET 请求成功"
+            ),
             Err(e) => warn!(error = %e, "GET 请求失败（已重试 {max_retries} 次）"),
         }
         result.map_err(|e| CrawlError::Http(format!("wreq GET 请求失败(重试{max_retries}次): {e}")))
@@ -140,10 +144,15 @@ impl HttpClient for WreqClient {
             .retry(&ExponentialBuilder::default().with_max_times(max_retries))
             .await;
         match &result {
-            Ok(resp) => debug!(status = resp.status, body_len = resp.body.len(), "POST 请求成功"),
+            Ok(resp) => debug!(
+                status = resp.status,
+                body_len = resp.body.len(),
+                "POST 请求成功"
+            ),
             Err(e) => warn!(error = %e, "POST 请求失败（已重试 {max_retries} 次）"),
         }
-        result.map_err(|e| CrawlError::Http(format!("wreq POST 请求失败(重试{max_retries}次): {e}")))
+        result
+            .map_err(|e| CrawlError::Http(format!("wreq POST 请求失败(重试{max_retries}次): {e}")))
     }
 
     fn name(&self) -> &str {
@@ -152,6 +161,7 @@ impl HttpClient for WreqClient {
 }
 
 /// WreqClient 构建器，支持链式配置
+#[derive(Default)]
 pub struct WreqClientBuilder {
     timeout: Option<Duration>,
     user_agent: Option<String>,
@@ -161,21 +171,6 @@ pub struct WreqClientBuilder {
     proxy_user: Option<String>,
     proxy_pass: Option<String>,
     emulation: Option<wreq_util::Emulation>,
-}
-
-impl Default for WreqClientBuilder {
-    fn default() -> Self {
-        Self {
-            timeout: None,
-            user_agent: None,
-            name: String::new(),
-            max_retries: None,
-            proxy_url: None,
-            proxy_user: None,
-            proxy_pass: None,
-            emulation: None,
-        }
-    }
 }
 
 impl WreqClientBuilder {
@@ -259,7 +254,7 @@ impl WreqClientBuilder {
 
         builder = builder.redirect(wreq::redirect::Policy::limited(10));
         builder = builder.pool_idle_timeout(Duration::from_secs(90));
-        builder = builder.tcp_keepalive(Duration::from_secs(60));
+        builder = builder.tcp_keepalive(Duration::from_mins(1));
 
         // 配置代理（优先使用构建器参数，其次使用环境变量）
         let proxy_url = self.proxy_url.or_else(|| env::var("PROXY_URL").ok());

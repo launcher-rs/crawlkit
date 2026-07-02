@@ -38,10 +38,7 @@ async fn main() -> anyhow::Result<()> {
         if resp.is_html() {
             match html::extract_readable_content(&resp.body) {
                 Ok(md) => {
-                    articles_clone
-                        .lock()
-                        .unwrap()
-                        .push((resp.url.clone(), md));
+                    articles_clone.lock().unwrap().push((resp.url.clone(), md));
                 }
                 Err(e) => {
                     eprintln!("  ✗ Readability 失败 [{}] {}", e, resp.url);
@@ -82,7 +79,12 @@ async fn main() -> anyhow::Result<()> {
         } else {
             md.clone()
         };
-        println!("  ✓ [{} 字符] {} — {}", md.len(), preview.replace('\n', " "), url);
+        println!(
+            "  ✓ [{} 字符] {} — {}",
+            md.len(),
+            preview.replace('\n', " "),
+            url
+        );
     }
 
     Ok(())

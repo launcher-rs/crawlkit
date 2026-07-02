@@ -11,7 +11,7 @@ use std::{collections::HashMap, env};
 
 use async_trait::async_trait;
 use crawlkit::{Collector, CrawlError, HttpClient, Response, Result};
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 /// 用户侧自定义 Firecrawl 客户端。
 pub struct FirecrawlClient {

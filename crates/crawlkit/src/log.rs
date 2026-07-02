@@ -14,8 +14,8 @@
 //! crawlkit::log::init_debug();
 //! ```
 
-use tracing_subscriber::fmt;
 use tracing_subscriber::EnvFilter;
+use tracing_subscriber::fmt;
 
 /// 初始化 tracing 日志（默认 info 级别）
 ///
@@ -29,8 +29,8 @@ use tracing_subscriber::EnvFilter;
 /// crawlkit::log::init();
 /// ```
 pub fn init() {
-    let filter = EnvFilter::try_from_default_env()
-        .unwrap_or_else(|_| EnvFilter::new("crawlkit=info"));
+    let filter =
+        EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("crawlkit=info"));
 
     let _ = fmt().with_env_filter(filter).try_init();
 }
@@ -44,8 +44,7 @@ pub fn init() {
 /// RUST_LOG=debug cargo run --example callback
 /// ```
 pub fn init_with_env() {
-    let filter = EnvFilter::try_from_default_env()
-        .unwrap_or_else(|_| EnvFilter::new("info"));
+    let filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"));
 
     let _ = fmt().with_env_filter(filter).try_init();
 }
@@ -59,8 +58,8 @@ pub fn init_with_env() {
 /// crawlkit::log::init_debug();
 /// ```
 pub fn init_debug() {
-    let filter = EnvFilter::try_from_default_env()
-        .unwrap_or_else(|_| EnvFilter::new("crawlkit=debug"));
+    let filter =
+        EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("crawlkit=debug"));
 
     let _ = fmt().with_env_filter(filter).try_init();
 }
@@ -74,8 +73,8 @@ pub fn init_debug() {
 /// crawlkit::log::init_with_timestamp();
 /// ```
 pub fn init_with_timestamp() {
-    let filter = EnvFilter::try_from_default_env()
-        .unwrap_or_else(|_| EnvFilter::new("crawlkit=info"));
+    let filter =
+        EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("crawlkit=info"));
 
     let _ = fmt()
         .with_env_filter(filter)
