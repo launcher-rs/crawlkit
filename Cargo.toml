@@ -6,6 +6,7 @@ members = [
     "crates/crawlkit-parser",
     "crates/crawlkit",
     "crates/crawlkit-fetcher-wreq",
+    "crates/crawlkit-media",
 ]
 resolver = "3"
 

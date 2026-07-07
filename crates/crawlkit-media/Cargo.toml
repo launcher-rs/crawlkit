@@ -1,0 +1,39 @@
+[package]
+name = "crawlkit-media"
+version = "0.1.0"
+edition = "2024"
+description = "crawlkit 媒体提取与下载模块（图片、视频、音频、文档、嵌入内容）"
+license = "MIT"
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+url = "2"
+thiserror = "2"
+regex = "1"
+tracing = "0.1"
+scraper = "0.22"
+lazy_static = "1"
+
+# 下载器依赖（可选，通过 features 控制）
+bytes = { version = "1", optional = true }
+futures = { version = "0.3", optional = true }
+tokio = { version = "1", features = ["sync", "io-util", "fs"], optional = true }
+reqwest = { version = "0.12", features = ["json"], optional = true }
+sha2 = { version = "0.10", optional = true }
+base64 = { version = "0.22", optional = true }
+backon = { version = "1.5", optional = true }
+
+[lints]
+workspace = true
+
+[features]
+default = ["downloader"]
+downloader = [
+    "dep:bytes",
+    "dep:futures",
+    "dep:tokio",
+    "dep:reqwest",
+    "dep:sha2",
+    "dep:base64",
+    "dep:backon",
+]

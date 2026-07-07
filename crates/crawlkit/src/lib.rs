@@ -40,6 +40,12 @@ pub mod html {
     pub use crawlkit_parser::*;
 }
 
+/// 媒体提取与下载模块（需启用 `media` feature）
+#[cfg(feature = "media")]
+pub mod media {
+    pub use crawlkit_media::*;
+}
+
 pub mod collector;
 pub mod log;
 
