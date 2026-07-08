@@ -17,6 +17,8 @@
 //! - `pagination`：翻页检测
 //! - `contact`：联系方式提取
 //! - `feeds`：Feed/Sitemap 检测
+//! - `rules`：URL 正则规则引擎（UrlRule）
+//! - `extractor`：基于 DOM 聚类 + 打分的文章链接提取器
 //! - `fingerprint`：内容指纹与 AMP 检测
 
 pub mod html;
@@ -32,6 +34,8 @@ pub mod pagination;
 pub mod contact;
 pub mod feeds;
 pub mod fingerprint;
+pub mod rules;
+pub mod extractor;
 
 // 向后兼容的模块别名
 pub mod selectors;
@@ -201,6 +205,18 @@ pub use fingerprint::{
 // ============================================================================
 // 第三方重导出
 // ============================================================================
+
+// ============================================================================
+// URL 规则引擎
+// ============================================================================
+
+pub use rules::UrlRule;
+
+// ============================================================================
+// 文章链接提取
+// ============================================================================
+
+pub use extractor::{ExtractedLink, ExtractorConfig, LinkExtractor};
 
 /// 重新导出 scraper 供上层 crate 构建 Element
 pub use scraper;
