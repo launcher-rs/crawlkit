@@ -90,3 +90,7 @@ path = "examples/extract_media.rs"
 [[example]]
 name = "sequential"
 path = "examples/sequential.rs"
+
+[[example]]
+name = "extract_media_advanced"
+path = "examples/extract_media_advanced.rs"

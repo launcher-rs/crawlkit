@@ -429,4 +429,19 @@ mod tests {
         let urls = get_all_media_urls(TEST_HTML, None);
         assert!(!urls.is_empty());
     }
+
+    #[test]
+    fn test_extract_all_skips_noscript_iframe() {
+        let html = r#"
+            <noscript>
+                <iframe src="https://www.googletagmanager.com/ns.html?id=GTM-532L8P"
+                        height="0" width="0" style="display:none;visibility:hidden"></iframe>
+            </noscript>
+            <iframe src="https://example.com/visible"></iframe>
+        "#;
+        let extractor = MediaExtractor::new();
+        let result = extractor.extract_all(html).unwrap();
+        assert_eq!(result.embeds.len(), 1, "noscript 内的 iframe 不应被提取");
+        assert_eq!(result.embeds[0].url, "https://example.com/visible");
+    }
 }

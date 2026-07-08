@@ -8,7 +8,7 @@
 
 use lazy_static::lazy_static;
 use regex::Regex;
-use scraper::{Html, Selector, ElementRef};
+use scraper::{Html, Selector, ElementRef, Node};
 use std::collections::HashSet;
 use url::Url;
 
@@ -43,6 +43,9 @@ pub fn extract_embeds(document: &Html, base_url: Option<&Url>) -> Vec<EmbeddedMe
 
     if let Ok(sel) = Selector::parse("iframe[src]") {
         for el in document.select(&sel) {
+            if is_within_noscript(&el) {
+                continue;
+            }
             if let Some(embed) = extract_iframe(&el, base_url) {
                 let key = embed.absolute_url.as_ref().unwrap_or(&embed.url).clone();
                 if seen_urls.insert(key) {
@@ -54,6 +57,9 @@ pub fn extract_embeds(document: &Html, base_url: Option<&Url>) -> Vec<EmbeddedMe
 
     if let Ok(sel) = Selector::parse("object[data]") {
         for el in document.select(&sel) {
+            if is_within_noscript(&el) {
+                continue;
+            }
             if let Some(embed) = extract_object(&el, base_url) {
                 let key = embed.absolute_url.as_ref().unwrap_or(&embed.url).clone();
                 if seen_urls.insert(key) {
@@ -65,6 +71,9 @@ pub fn extract_embeds(document: &Html, base_url: Option<&Url>) -> Vec<EmbeddedMe
 
     if let Ok(sel) = Selector::parse("embed[src]") {
         for el in document.select(&sel) {
+            if is_within_noscript(&el) {
+                continue;
+            }
             if let Some(embed) = extract_embed_tag(&el, base_url) {
                 let key = embed.absolute_url.as_ref().unwrap_or(&embed.url).clone();
                 if seen_urls.insert(key) {
@@ -77,6 +86,20 @@ pub fn extract_embeds(document: &Html, base_url: Option<&Url>) -> Vec<EmbeddedMe
     extract_social_embeds(document, &mut embeds, &mut seen_urls);
 
     embeds
+}
+
+/// 检查元素是否位于 <noscript> 标签内
+pub(crate) fn is_within_noscript(el: &ElementRef) -> bool {
+    let mut current = el.parent();
+    while let Some(p) = current {
+        if let Node::Element(element) = p.value() {
+            if element.name() == "noscript" {
+                return true;
+            }
+        }
+        current = p.parent();
+    }
+    false
 }
 
 /// 提取 iframe 元素
@@ -321,7 +344,7 @@ pub fn get_embed_urls(html: &str, base_url: Option<&str>) -> Vec<String> {
 /// 检查 HTML 是否包含嵌入内容
 pub fn has_embeds(document: &Html) -> bool {
     if let Ok(sel) = Selector::parse("iframe[src], object[data], embed[src]") {
-        document.select(&sel).next().is_some()
+        document.select(&sel).any(|el| !is_within_noscript(&el))
     } else {
         false
     }
@@ -404,5 +427,67 @@ mod tests {
 
         assert!(has_embeds(&parse_html(with_embed)));
         assert!(!has_embeds(&parse_html(without_embed)));
+    }
+
+    #[test]
+    fn test_skip_noscript_iframe() {
+        let html = r#"
+            <iframe src="https://example.com/visible"></iframe>
+            <noscript><iframe src="https://example.com/hidden"></iframe></noscript>
+        "#;
+        let doc = parse_html(html);
+        let embeds = extract_embeds(&doc, None);
+
+        // 如果 scraper 把 noscript 内容作为文本解析，这里只有1个 iframe
+        // 如果作为元素解析，is_within_noscript 会过滤掉 hidden
+        assert_eq!(embeds.len(), 1);
+        assert_eq!(embeds[0].url, "https://example.com/visible");
+    }
+
+    #[test]
+    fn test_noscript_only_iframe() {
+        let html = r#"<noscript><iframe src="https://example.com/hidden"></iframe></noscript>"#;
+        let doc = parse_html(html);
+        let embeds = extract_embeds(&doc, None);
+
+        // 验证 scraper 是否把 noscript 内部的 iframe 解析为 DOM 元素
+        let iframe_sel = Selector::parse("iframe[src]").unwrap();
+        let dom_count = doc.select(&iframe_sel).count();
+        eprintln!("noscript 内 iframe DOM 元素数量: {}", dom_count);
+
+        // 无论 scraper 如何解析 noscript，都不应提取
+        assert!(embeds.is_empty());
+    }
+
+    #[test]
+    fn test_skip_noscript_object() {
+        let html = r#"
+            <object data="https://example.com/widget"></object>
+            <noscript><object data="https://example.com/noscript-widget"></object></noscript>
+        "#;
+        let doc = parse_html(html);
+        let embeds = extract_embeds(&doc, None);
+
+        assert_eq!(embeds.len(), 1);
+        assert_eq!(embeds[0].url, "https://example.com/widget");
+    }
+
+    #[test]
+    fn test_skip_noscript_embed() {
+        let html = r#"
+            <embed src="https://example.com/plugin">
+            <noscript><embed src="https://example.com/noscript-plugin"></noscript>
+        "#;
+        let doc = parse_html(html);
+        let embeds = extract_embeds(&doc, None);
+
+        assert_eq!(embeds.len(), 1);
+        assert_eq!(embeds[0].url, "https://example.com/plugin");
+    }
+
+    #[test]
+    fn test_noscript_has_embeds() {
+        let html = r#"<noscript><iframe src="https://example.com"></iframe></noscript>"#;
+        assert!(!has_embeds(&parse_html(html)));
     }
 }
