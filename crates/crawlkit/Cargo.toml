@@ -86,3 +86,7 @@ path = "examples/rustcc_news_concurrent.rs"
 [[example]]
 name = "extract_media"
 path = "examples/extract_media.rs"
+
+[[example]]
+name = "sequential"
+path = "examples/sequential.rs"
