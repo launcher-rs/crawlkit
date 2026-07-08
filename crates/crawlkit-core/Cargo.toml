@@ -1,6 +1,6 @@
 [package]
 name = "crawlkit-core"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2024"
 description = "crawlkit 核心类型、trait 和错误定义，零 HTTP 依赖"
 license = "MIT"

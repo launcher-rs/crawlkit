@@ -360,7 +360,7 @@ dependencies = [
 
 [[package]]
 name = "crawlkit"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -383,7 +383,7 @@ dependencies = [
 
 [[package]]
 name = "crawlkit-core"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "async-trait",
  "serde",
@@ -394,7 +394,7 @@ dependencies = [
 
 [[package]]
 name = "crawlkit-fetcher"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "async-trait",
  "crawlkit-core",
@@ -404,7 +404,7 @@ dependencies = [
 
 [[package]]
 name = "crawlkit-fetcher-reqwest"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -417,7 +417,7 @@ dependencies = [
 
 [[package]]
 name = "crawlkit-fetcher-wreq"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -430,7 +430,7 @@ dependencies = [
 
 [[package]]
 name = "crawlkit-media"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "backon",
  "base64",
@@ -450,7 +450,7 @@ dependencies = [
 
 [[package]]
 name = "crawlkit-parser"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "crawlkit-core",
  "dom_smoothie",
