@@ -80,7 +80,7 @@ fn extract_body_text(element: ElementRef) -> String {
 }
 
 /// 提取元素的所有文本内容，自动在块级元素后换行
-fn extract_element_text(element: ElementRef) -> String {
+pub fn extract_element_text(element: ElementRef) -> String {
     let mut result = String::new();
     for child in element.children() {
         match child.value() {
@@ -154,7 +154,7 @@ fn extract_element_text_filtered(
 }
 
 /// 深度受限的递归文本提取，防止栈溢出
-fn extract_text_recursive(element: ElementRef, depth: usize, max_depth: usize) -> String {
+pub fn extract_text_recursive(element: ElementRef, depth: usize, max_depth: usize) -> String {
     if depth >= max_depth {
         return String::new();
     }
@@ -250,12 +250,12 @@ pub fn strip_html_tags(html: &str) -> String {
 // ── 元素分类 ────────────────────────────────────────────────
 
 /// 判断元素是否应该被跳过
-fn should_skip_element(element: &ElementRef) -> bool {
+pub fn should_skip_element(element: &ElementRef) -> bool {
     let tag = element.value().name.local.as_ref();
     should_skip_element_by_tag(tag)
 }
 
-fn should_skip_element_by_tag(tag: &str) -> bool {
+pub fn should_skip_element_by_tag(tag: &str) -> bool {
     matches!(
         tag,
         "script" | "style" | "noscript" | "iframe" | "canvas"
