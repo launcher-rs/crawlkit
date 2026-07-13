@@ -1,13 +1,13 @@
 [package]
 name = "crawlkit-fetcher-reqwest"
-version = "0.2.0"
+version.workspace = true
 edition = "2024"
 description = "crawlkit 基于 reqwest 的 HTTP 客户端实现"
-repository = "https://github.com/launcher-rs/crawlkit"
-license = "MIT"
+repository.workspace = true
+license.workspace = true
 
 [dependencies]
-crawlkit-core = { path = "../crawlkit-core",version = "0.2.0" }
+crawlkit-core = { path = "../crawlkit-core",version = "0.2.1" }
 async-trait = "0.1"
 reqwest = { version = "0.13", features = ["json", "gzip", "brotli", "deflate", "zstd"] }
 backon = "1.5"

@@ -1,13 +1,13 @@
 [package]
 name = "crawlkit-parser"
-version = "0.2.0"
+version.workspace =true
 edition = "2024"
 description = "crawlkit HTML 解析与内容提取模块"
-repository = "https://github.com/launcher-rs/crawlkit"
-license = "MIT"
+repository.workspace = true
+license.workspace = true
 
 [dependencies]
-crawlkit-core = { path = "../crawlkit-core", version = "0.2.0" }
+crawlkit-core = { path = "../crawlkit-core", version = "0.2.1" }
 scraper = "0.22"
 dom_smoothie = "0.18.0"
 url = "2"

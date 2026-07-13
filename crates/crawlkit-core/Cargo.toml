@@ -1,10 +1,10 @@
 [package]
 name = "crawlkit-core"
-version = "0.2.0"
+version.workspace = true
 edition = "2024"
 description = "crawlkit 核心类型、trait 和错误定义，零 HTTP 依赖"
-repository = "https://github.com/launcher-rs/crawlkit"
-license = "MIT"
+repository.workspace = true
+license.workspace = true
 
 [dependencies]
 thiserror = "2"

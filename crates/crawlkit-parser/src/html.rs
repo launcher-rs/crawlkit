@@ -3,7 +3,7 @@
 //! 提供链接提取、文章内容提取、可读性提取等实用功能。
 //! 底层使用 `scraper`（基于 html5ever）和 `dom_smoothie`（Readability 模式）。
 
-use dom_smoothie::{Config, TextMode};
+use dom_smoothie::{Config, Readability, TextMode};
 use scraper::{Html, Selector};
 use skyscraper::{
     html as xpath_html,
@@ -181,135 +181,37 @@ pub struct Article {
 
 /// 从 HTML 中提取文章内容
 ///
-/// 使用启发式规则提取：按优先级尝试多种常见 DOM 结构。
+/// 使用 dom_smoothie（Readability 模式）提取结构化文章内容，
+/// 支持标题、正文、作者、发布日期和摘要的自动提取。
 ///
-/// # 提取策略
-/// 1. 优先查找 `<article>` 标签
-/// 2. 查找 `article-body` / `post-content` / `entry-content` 等常见 class
-/// 3. 查找 `<h1>` 作为标题，最大的 `<div>` 块作为正文
-///
-/// `base_url` 参数预留用于将文章中的相对路径转为绝对路径，当前版本暂未使用。
-pub fn extract_article(html_content: &str, _base_url: &str) -> Article {
-    let document = Html::parse_document(html_content);
+/// `base_url` 参数传递给 Readability，用于解析相对 URL。
+pub fn extract_article(html_content: &str, base_url: &str) -> Article {
+    let cfg = Config {
+        text_mode: TextMode::Markdown,
+        ..Default::default()
+    };
+
+    let url = if base_url.is_empty() { None } else { Some(base_url) };
+
+    let mut readability = match Readability::new(html_content, url, Some(cfg)) {
+        Ok(r) => r,
+        Err(_) => return Article::default(),
+    };
+
+    let dom_article = match readability.parse() {
+        Ok(a) => a,
+        Err(_) => return Article::default(),
+    };
+
+    let content = dom_article.text_content.to_string();
 
     Article {
-        title: extract_title(&document),
-        content: extract_content_heuristic(&document),
-        date: extract_meta_content(&document, "date")
-            .or_else(|| extract_meta_content(&document, "article:published_time")),
-        author: extract_meta_content(&document, "author")
-            .or_else(|| extract_meta_content(&document, "article:author")),
-        description: extract_meta_content(&document, "description")
-            .or_else(|| extract_meta_content(&document, "og:description")),
+        title: dom_article.title,
+        content,
+        date: dom_article.published_time,
+        author: dom_article.byline,
+        description: dom_article.excerpt,
     }
-}
-
-/// 提取页面标题：优先 og:title → h1 → <title>
-fn extract_title(document: &Html) -> String {
-    if let Ok(sel) = Selector::parse(r#"meta[property="og:title"]"#)
-        && let Some(el) = document.select(&sel).next()
-        && let Some(content) = el.value().attr("content")
-        && !content.is_empty()
-    {
-        return content.to_string();
-    }
-    if let Ok(sel) = Selector::parse("h1")
-        && let Some(el) = document.select(&sel).next()
-    {
-        let text: String = el.text().collect::<Vec<_>>().join("").trim().to_string();
-        if !text.is_empty() {
-            return text;
-        }
-    }
-    if let Ok(sel) = Selector::parse("title")
-        && let Some(el) = document.select(&sel).next()
-    {
-        let text: String = el.text().collect::<Vec<_>>().join("").trim().to_string();
-        if !text.is_empty() {
-            return text;
-        }
-    }
-    String::new()
-}
-
-/// 提取正文：按优先级尝试多种策略
-fn extract_content_heuristic(document: &Html) -> String {
-    // 策略 1：<article> 标签
-    if let Ok(sel) = Selector::parse("article")
-        && let Some(el) = document.select(&sel).next()
-    {
-        let text = element_to_text(&el);
-        if text.len() > 100 {
-            return text;
-        }
-    }
-
-    // 策略 2：常见文章容器 class
-    let content_selectors = &[
-        "article-body",
-        "post-content",
-        "entry-content",
-        "article-content",
-        "news-content",
-        "story-body",
-        ".content-article",
-        "#article-body",
-        ".article-body",
-        ".post-body",
-    ];
-
-    for selector_str in content_selectors {
-        if let Ok(sel) = Selector::parse(selector_str)
-            && let Some(el) = document.select(&sel).next()
-        {
-            let text = element_to_text(&el);
-            if text.len() > 100 {
-                return text;
-            }
-        }
-    }
-
-    // 策略 3：找最大的文本块（启发式兜底）
-    if let Ok(sel) = Selector::parse("div") {
-        let divs: Vec<_> = document.select(&sel).collect();
-        let mut best = String::new();
-        for div in divs {
-            let text = element_to_text(&div);
-            if text.len() > 200 && text.len() < 50_000 && text.len() > best.len() {
-                best = text;
-            }
-        }
-        if !best.is_empty() {
-            return best;
-        }
-    }
-
-    String::new()
-}
-
-/// 从 <meta> 标签提取 content 属性
-fn extract_meta_content(document: &Html, name: &str) -> Option<String> {
-    let sel_str = format!(r#"meta[name="{name}"]"#);
-    if let Ok(sel) = Selector::parse(&sel_str)
-        && let Some(el) = document.select(&sel).next()
-        && let Some(content) = el.value().attr("content")
-    {
-        let content = content.trim().to_string();
-        if !content.is_empty() {
-            return Some(content);
-        }
-    }
-    let sel_str = format!(r#"meta[property="{name}"]"#);
-    if let Ok(sel) = Selector::parse(&sel_str)
-        && let Some(el) = document.select(&sel).next()
-        && let Some(content) = el.value().attr("content")
-    {
-        let content = content.trim().to_string();
-        if !content.is_empty() {
-            return Some(content);
-        }
-    }
-    None
 }
 
 // ──────────────────────────────────────────────
@@ -412,24 +314,6 @@ pub fn extract_attributes(raw_html: &str, selector: &str, attr: &str) -> Result<
         .collect();
 
     Ok(values)
-}
-
-/// 将 HTML 元素转为纯文本（保留段落分隔）
-fn element_to_text(element: &scraper::ElementRef) -> String {
-    let mut result = String::new();
-    for text_piece in element.text() {
-        let t = text_piece.trim();
-        if !t.is_empty() {
-            result.push_str(t);
-            result.push('\n');
-        }
-    }
-    let lines: Vec<&str> = result
-        .lines()
-        .map(str::trim)
-        .filter(|l| !l.is_empty())
-        .collect();
-    lines.join("\n")
 }
 
 #[cfg(test)]

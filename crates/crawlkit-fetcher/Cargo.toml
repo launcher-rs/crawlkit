@@ -1,13 +1,13 @@
 [package]
 name = "crawlkit-fetcher"
-version = "0.2.0"
+version.workspace = true
 edition = "2024"
 description = "crawlkit 组合请求器，可串联多个 HTTP 客户端实现故障转移"
-repository = "https://github.com/launcher-rs/crawlkit"
-license = "MIT"
+repository.workspace = true
+license.workspace = true
 
 [dependencies]
-crawlkit-core = { path = "../crawlkit-core",version = "0.2.0" }
+crawlkit-core = { path = "../crawlkit-core",version = "0.2.1" }
 async-trait = "0.1"
 tracing = "0.1"
 
