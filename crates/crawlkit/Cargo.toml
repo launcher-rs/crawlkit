@@ -3,6 +3,7 @@ name = "crawlkit"
 version = "0.2.0"
 edition = "2024"
 description = "crawlkit Rust 爬虫工具包 — 集成入口（facade crate）"
+repository = "https://github.com/launcher-rs/crawlkit"
 license = "MIT"
 
 [dependencies]

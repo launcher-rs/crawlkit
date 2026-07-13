@@ -3,6 +3,7 @@ name = "crawlkit-fetcher-reqwest"
 version = "0.2.0"
 edition = "2024"
 description = "crawlkit 基于 reqwest 的 HTTP 客户端实现"
+repository = "https://github.com/launcher-rs/crawlkit"
 license = "MIT"
 
 [dependencies]

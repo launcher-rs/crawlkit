@@ -3,6 +3,7 @@ name = "crawlkit-fetcher"
 version = "0.2.0"
 edition = "2024"
 description = "crawlkit 组合请求器，可串联多个 HTTP 客户端实现故障转移"
+repository = "https://github.com/launcher-rs/crawlkit"
 license = "MIT"
 
 [dependencies]
