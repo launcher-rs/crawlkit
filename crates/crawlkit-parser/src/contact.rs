@@ -36,10 +36,12 @@ pub struct Email {
 /// 邮箱来源
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
+#[derive(Default)]
 pub enum EmailSource {
     /// mailto: 链接
     MailtoLink,
     /// 页面正文文本
+    #[default]
     PageText,
     /// meta 标签
     MetaTag,
@@ -47,11 +49,6 @@ pub enum EmailSource {
     StructuredData,
 }
 
-impl Default for EmailSource {
-    fn default() -> Self {
-        Self::PageText
-    }
-}
 
 /// 电话号码
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -65,6 +62,7 @@ pub struct Phone {
 /// 电话类型
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
+#[derive(Default)]
 pub enum PhoneType {
     /// 固定电话
     Landline,
@@ -75,14 +73,10 @@ pub enum PhoneType {
     /// 免费热线
     TollFree,
     /// 未知
+    #[default]
     Unknown,
 }
 
-impl Default for PhoneType {
-    fn default() -> Self {
-        Self::Unknown
-    }
-}
 
 /// 物理地址
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -140,47 +134,47 @@ pub enum SocialPlatform {
 lazy_static! {
     /// 标准的邮箱地址正则（RFC 5322 简化版）
     static ref EMAIL_RE: Regex = Regex::new(
-        r#"[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}"#
+        r"[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}"
     ).expect("无效的邮箱正则");
 
     /// 电话号码正则（支持国际格式、常见分隔符）
     static ref PHONE_RE: Regex = Regex::new(
-        r#"(?:\+?\d{1,3}[-.\s]?)?\(?\d{2,4}\)?[-.\s]?\d{3,4}[-.\s]?\d{3,4}(?:\s*(?:分机|ext|x|#)\s*\d+)?\b"#
+        r"(?:\+?\d{1,3}[-.\s]?)?\(?\d{2,4}\)?[-.\s]?\d{3,4}[-.\s]?\d{3,4}(?:\s*(?:分机|ext|x|#)\s*\d+)?\b"
     ).expect("无效的电话正则");
 
     /// 美国免费热线正则（800/888/877/866/855/844/833）
     static ref TOLLFREE_RE: Regex = Regex::new(
-        r#"(?:\+?1[-.\s]?)?(?:8(?:00|88|77|66|55|44|33))[-.\s]?\d{3}[-.\s]?\d{4}"#
+        r"(?:\+?1[-.\s]?)?(?:8(?:00|88|77|66|55|44|33))[-.\s]?\d{3}[-.\s]?\d{4}"
     ).expect("无效的免费热线正则");
 
     /// 中国手机号正则
     static ref CN_MOBILE_RE: Regex = Regex::new(
-        r#"1[3-9]\d{9}"#
+        r"1[3-9]\d{9}"
     ).expect("无效的中国手机正则");
 
     /// 中国固定电话正则（含区号）
     static ref CN_LANDLINE_RE: Regex = Regex::new(
-        r#"0\d{2,3}[-.\s]?\d{7,8}"#
+        r"0\d{2,3}[-.\s]?\d{7,8}"
     ).expect("无效的中国固话正则");
 
     /// 邮政编码正则（通用 5 位及 5+4 格式）
     static ref POSTAL_CODE_RE: Regex = Regex::new(
-        r#"\b\d{5}(?:-\d{4})?\b"#
+        r"\b\d{5}(?:-\d{4})?\b"
     ).expect("无效的邮编正则");
 
     /// 中国邮政编码正则（6 位）
     static ref CN_POSTAL_CODE_RE: Regex = Regex::new(
-        r#"\b\d{6}\b"#
+        r"\b\d{6}\b"
     ).expect("无效的中国邮编正则");
 
     /// 社交媒体 URL 正则
     static ref SOCIAL_URL_RE: Regex = Regex::new(
-        r#"(?:https?://)?(?:www\.)?(?:facebook|twitter|x|linkedin|instagram|youtube|github|tiktok|pinterest|snapchat|reddit|t\.me|wa\.me|weixin|weibo)\.(?:com|me|io|tv|cn)/(?:[a-zA-Z0-9_.\-]+/?)+"#
+        r"(?:https?://)?(?:www\.)?(?:facebook|twitter|x|linkedin|instagram|youtube|github|tiktok|pinterest|snapchat|reddit|t\.me|wa\.me|weixin|weibo)\.(?:com|me|io|tv|cn)/(?:[a-zA-Z0-9_.\-]+/?)+"
     ).expect("无效的社交链接正则");
 
     /// 联系页面路径正则
     static ref CONTACT_PAGE_RE: Regex = Regex::new(
-        r#"(?i)(?:contact|about|support|联系|关于我们|客服)(?:[-_./]?(?:us|me|info|page|support))?"#
+        r"(?i)(?:contact|about|support|联系|关于我们|客服)(?:[-_./]?(?:us|me|info|page|support))?"
     ).expect("无效的联系页面正则");
 }
 
@@ -231,15 +225,14 @@ pub fn extract_emails(document: &Html) -> Vec<Email> {
     // 从 meta 标签提取
     if let Ok(sel) = Selector::parse(r#"meta[name="email"], meta[property="email"]"#) {
         for element in document.select(&sel) {
-            if let Some(content) = element.value().attr("content") {
-                if is_valid_email(content.trim()) && seen.insert(content.trim().to_string()) {
+            if let Some(content) = element.value().attr("content")
+                && is_valid_email(content.trim()) && seen.insert(content.trim().to_string()) {
                     emails.push(Email {
                         address: content.trim().to_string(),
                         label: None,
                         source: EmailSource::MetaTag,
                     });
                 }
-            }
         }
     }
 
@@ -299,7 +292,7 @@ pub fn is_valid_email(email: &str) -> bool {
         }
         // 排除因文本拼接导致的虚假邮箱（TLD 过长或域名段数异常）
         let domain_parts: Vec<&str> = domain.split('.').collect();
-        if domain_parts.len() > 3 || domain_parts.last().map_or(false, |tld| tld.len() > 8) {
+        if domain_parts.len() > 3 || domain_parts.last().is_some_and(|tld| tld.len() > 8) {
             return false;
         }
     }
@@ -310,7 +303,7 @@ pub fn is_valid_email(email: &str) -> bool {
 /// 提取邮箱附近的标签文本
 pub fn extract_email_label(document: &Html, _address: &str) -> Option<String> {
     // 查找 mailto 链接触近的文本
-    if let Ok(sel) = Selector::parse(&format!(r#"a[href="mailto:{}"]"#, _address)) {
+    if let Ok(sel) = Selector::parse(&format!(r#"a[href="mailto:{_address}"]"#)) {
         for element in document.select(&sel) {
             let text = element.text().collect::<String>().trim().to_string();
             if !text.is_empty() && text != _address {
@@ -406,7 +399,7 @@ pub fn extract_phones(document: &Html) -> Vec<Phone> {
 
 /// 提取电话号码附近的标签文本
 pub fn extract_phone_label(document: &Html, _number: &str) -> Option<String> {
-    if let Ok(sel) = Selector::parse(&format!(r#"a[href="tel:{}"]"#, _number)) {
+    if let Ok(sel) = Selector::parse(&format!(r#"a[href="tel:{_number}"]"#)) {
         for element in document.select(&sel) {
             let text = element.text().collect::<String>().trim().to_string();
             if !text.is_empty() && text != _number {
@@ -419,12 +412,12 @@ pub fn extract_phone_label(document: &Html, _number: &str) -> Option<String> {
 
 /// 检测电话号码类型
 pub fn detect_phone_type(number: &str) -> PhoneType {
-    let cleaned = number.chars().filter(|c| c.is_ascii_digit()).collect::<String>();
+    let cleaned = number.chars().filter(char::is_ascii_digit).collect::<String>();
 
     // 免费热线（含 US 1-800 前缀）
     if cleaned.len() >= 10 && cleaned.len() <= 12 {
         let digits = cleaned.as_str();
-        let first_three = if digits.starts_with("1") && digits.len() >= 11 {
+        let first_three = if digits.starts_with('1') && digits.len() >= 11 {
             &digits[1..4]
         } else {
             &digits[..3]
@@ -453,7 +446,7 @@ pub fn detect_phone_type(number: &str) -> PhoneType {
 
 /// 标准化电话号码（仅保留数字）
 fn normalize_phone(number: &str) -> String {
-    number.chars().filter(|c| c.is_ascii_digit()).collect()
+    number.chars().filter(char::is_ascii_digit).collect()
 }
 
 // ============================================================================
@@ -485,8 +478,8 @@ pub fn extract_addresses(document: &Html) -> Vec<Address> {
     }
 
     // 兜底：查找页面中包含地址模式的大段文本
-    if addresses.is_empty() {
-        if let Ok(sel) = Selector::parse("body") {
+    if addresses.is_empty()
+        && let Ok(sel) = Selector::parse("body") {
             for element in document.select(&sel) {
                 let text = element.text().collect::<String>();
                 let lower = text.to_lowercase();
@@ -522,7 +515,6 @@ pub fn extract_addresses(document: &Html) -> Vec<Address> {
                 }
             }
         }
-    }
 
     addresses
 }
@@ -540,17 +532,16 @@ pub fn extract_structured_address(document: &Html) -> Vec<Address> {
             }
 
             let extract_prop = |prop: &str| -> Option<String> {
-                let query = format!(r#"[itemprop="{}"]"#, prop);
+                let query = format!(r#"[itemprop="{prop}"]"#);
                 if let Ok(inner_sel) = Selector::parse(&query) {
                     for inner in element.select(&inner_sel) {
                         let val = inner.text().collect::<String>().trim().to_string();
                         if !val.is_empty() {
                             // 检查 meta 标签 content 属性
-                            if let Some(content) = inner.value().attr("content") {
-                                if !content.is_empty() {
+                            if let Some(content) = inner.value().attr("content")
+                                && !content.is_empty() {
                                     return Some(content.to_string());
                                 }
-                            }
                             return Some(val);
                         }
                     }
@@ -688,7 +679,7 @@ pub fn extract_social_links(document: &Html) -> Vec<SocialLink> {
 
     // 从 meta/link 标签提取
     for attr in &["me", "url", "social"] {
-        if let Ok(sel) = Selector::parse(&format!(r#"link[rel="{}"], a[rel="{}"]"#, attr, attr)) {
+        if let Ok(sel) = Selector::parse(&format!(r#"link[rel="{attr}"], a[rel="{attr}"]"#)) {
             for element in document.select(&sel) {
                 if let Some(href) = element.value().attr("href") {
                     let platform = detect_social_platform(href);
@@ -767,7 +758,7 @@ pub fn extract_social_username(url: &str, platform: SocialPlatform) -> Option<St
             // linkedin.com/in/username 或 linkedin.com/company/name
             let parts: Vec<&str> = url.split('/').collect();
             if let Some(idx) = parts.iter().position(|s| *s == "in" || *s == "company") {
-                parts.get(idx + 1).map(|s| s.to_string())
+                parts.get(idx + 1).map(std::string::ToString::to_string)
             } else {
                 None
             }
@@ -775,7 +766,7 @@ pub fn extract_social_username(url: &str, platform: SocialPlatform) -> Option<St
         SocialPlatform::GitHub => {
             // github.com/username
             let parts: Vec<&str> = url.split('/').collect();
-            parts.get(3).map(|s| s.to_string()).filter(|s| !s.is_empty())
+            parts.get(3).map(std::string::ToString::to_string).filter(|s| !s.is_empty())
         }
         SocialPlatform::Telegram => {
             // t.me/username 或 t.me/s/username
@@ -1018,7 +1009,7 @@ mod tests {
 
     #[test]
     fn test_extract_address_from_element() {
-        let doc = Html::parse_document(r#"<address>北京朝阳区建国路88号 邮编：100025</address>"#);
+        let doc = Html::parse_document(r"<address>北京朝阳区建国路88号 邮编：100025</address>");
         let addrs = extract_addresses(&doc);
         assert!(!addrs.is_empty() && addrs[0].raw.contains("北京"));
     }

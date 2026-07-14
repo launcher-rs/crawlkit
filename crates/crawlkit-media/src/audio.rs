@@ -47,31 +47,27 @@ pub fn extract_audio(document: &Html, base_url: Option<&Url>) -> Vec<AudioMedia>
 
     if let Ok(sel) = Selector::parse("iframe[src]") {
         for el in document.select(&sel) {
-            if let Some(src) = el.value().attr("src") {
-                if is_audio_embed(src) {
-                    if let Some(audio) = extract_embedded_audio(&el, base_url) {
+            if let Some(src) = el.value().attr("src")
+                && is_audio_embed(src)
+                    && let Some(audio) = extract_embedded_audio(&el, base_url) {
                         let key = audio.absolute_url.as_ref().unwrap_or(&audio.src).clone();
                         if seen_urls.insert(key) {
                             audio_items.push(audio);
                         }
                     }
-                }
-            }
         }
     }
 
     if let Ok(sel) = Selector::parse("a[href]") {
         for el in document.select(&sel) {
-            if let Some(href) = el.value().attr("href") {
-                if is_audio_file(href) {
-                    if let Some(audio) = create_audio_from_link(&el, base_url) {
+            if let Some(href) = el.value().attr("href")
+                && is_audio_file(href)
+                    && let Some(audio) = create_audio_from_link(&el, base_url) {
                         let key = audio.absolute_url.as_ref().unwrap_or(&audio.src).clone();
                         if seen_urls.insert(key) {
                             audio_items.push(audio);
                         }
                     }
-                }
-            }
         }
     }
 
@@ -104,13 +100,13 @@ fn extract_audio_element(el: &ElementRef, base_url: Option<&Url>) -> Option<Audi
     audio.muted = el.value().attr("muted").is_some();
     audio.controls = el.value().attr("controls").is_some();
 
-    audio.mime_type = el.value().attr("type").map(|s| s.to_string())
+    audio.mime_type = el.value().attr("type").map(std::string::ToString::to_string)
         .or_else(|| guess_audio_mime(&audio.src));
 
     audio.sources = extract_audio_sources(el, base_url);
 
-    audio.title = el.value().attr("title").map(|s| s.to_string())
-        .or_else(|| el.value().attr("aria-label").map(|s| s.to_string()));
+    audio.title = el.value().attr("title").map(std::string::ToString::to_string)
+        .or_else(|| el.value().attr("aria-label").map(std::string::ToString::to_string));
 
     Some(audio)
 }
@@ -124,7 +120,7 @@ fn extract_audio_sources(audio: &ElementRef, base_url: Option<&Url>) -> Vec<Audi
             if let Some(src) = source.value().attr("src") {
                 sources.push(AudioSource {
                     src: resolve_url(src, base_url).unwrap_or_else(|| src.to_string()),
-                    mime_type: source.value().attr("type").map(|s| s.to_string()),
+                    mime_type: source.value().attr("type").map(std::string::ToString::to_string),
                 });
             }
         }
@@ -146,7 +142,7 @@ fn extract_embedded_audio(el: &ElementRef, base_url: Option<&Url>) -> Option<Aud
         ..Default::default()
     };
 
-    audio.title = el.value().attr("title").map(|s| s.to_string());
+    audio.title = el.value().attr("title").map(std::string::ToString::to_string);
 
     Some(audio)
 }
@@ -207,7 +203,7 @@ fn resolve_url(href: &str, base_url: Option<&Url>) -> Option<String> {
     }
 
     if href.starts_with("//") {
-        return Some(format!("https:{}", href));
+        return Some(format!("https:{href}"));
     }
 
     base_url.and_then(|base| base.join(href).ok().map(|u| u.to_string()))
@@ -244,7 +240,7 @@ pub fn has_audio(document: &Html) -> bool {
 
 /// 获取 Spotify 嵌入 URL
 pub fn spotify_embed_url(track_id: &str) -> String {
-    format!("https://open.spotify.com/embed/track/{}", track_id)
+    format!("https://open.spotify.com/embed/track/{track_id}")
 }
 
 // ============================================================================

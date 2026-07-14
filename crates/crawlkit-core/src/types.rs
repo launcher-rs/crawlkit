@@ -101,6 +101,7 @@ impl ScrapeStats {
     }
 
     /// 成功率
+    #[allow(clippy::cast_precision_loss)]
     pub fn success_rate(&self) -> f64 {
         if self.total == 0 {
             0.0

@@ -49,7 +49,7 @@ pub fn extract_headings(document: &Html) -> Vec<Heading> {
     let mut headings = Vec::new();
 
     for level in 1..=6u8 {
-        let selector_str = format!("h{}", level);
+        let selector_str = format!("h{level}");
         let selector = match try_parse_selector(&selector_str) {
             Some(s) => s,
             None => continue,
@@ -70,7 +70,7 @@ pub fn extract_headings(document: &Html) -> Vec<Heading> {
             let classes: Vec<String> = element
                 .value()
                 .classes()
-                .map(|c| c.to_string())
+                .map(std::string::ToString::to_string)
                 .collect();
 
             headings.push(Heading {
@@ -88,8 +88,8 @@ pub fn extract_headings(document: &Html) -> Vec<Heading> {
 /// 获取页面的主标题（第一个 h1，回退到第一个 h2，再回退到 <title>）
 pub fn get_main_heading(document: &Html) -> Option<Heading> {
     // 尝试 h1
-    if let Some(sel) = try_parse_selector("h1") {
-        if let Some(el) = document.select(&sel).next() {
+    if let Some(sel) = try_parse_selector("h1")
+        && let Some(el) = document.select(&sel).next() {
             let text: String = el
                 .text()
                 .collect::<Vec<_>>()
@@ -101,7 +101,7 @@ pub fn get_main_heading(document: &Html) -> Option<Heading> {
                 let classes: Vec<String> = el
                     .value()
                     .classes()
-                    .map(|c| c.to_string())
+                    .map(std::string::ToString::to_string)
                     .collect();
                 return Some(Heading {
                     level: 1,
@@ -111,11 +111,10 @@ pub fn get_main_heading(document: &Html) -> Option<Heading> {
                 });
             }
         }
-    }
 
     // 回退到 h2
-    if let Some(sel) = try_parse_selector("h2") {
-        if let Some(el) = document.select(&sel).next() {
+    if let Some(sel) = try_parse_selector("h2")
+        && let Some(el) = document.select(&sel).next() {
             let text: String = el
                 .text()
                 .collect::<Vec<_>>()
@@ -127,7 +126,7 @@ pub fn get_main_heading(document: &Html) -> Option<Heading> {
                 let classes: Vec<String> = el
                     .value()
                     .classes()
-                    .map(|c| c.to_string())
+                    .map(std::string::ToString::to_string)
                     .collect();
                 return Some(Heading {
                     level: 2,
@@ -137,7 +136,6 @@ pub fn get_main_heading(document: &Html) -> Option<Heading> {
                 });
             }
         }
-    }
 
     None
 }
@@ -218,13 +216,11 @@ pub fn extract_lists(document: &Html, config: &ParserConfig) -> Vec<ListContent>
         for element in document.select(&selector) {
             // 跳过嵌套在列表项内的列表（由 extract_list_item 处理）
             let parent = element.parent();
-            if let Some(parent_id) = parent {
-                if let Some(parent_ref) = ElementRef::wrap(parent_id) {
-                    if parent_ref.value().name() == "li" {
+            if let Some(parent_id) = parent
+                && let Some(parent_ref) = ElementRef::wrap(parent_id)
+                    && parent_ref.value().name() == "li" {
                         continue;
                     }
-                }
-            }
             let list = extract_list(&element, config);
             if !list.is_empty() {
                 lists.push(list);
@@ -303,13 +299,11 @@ pub fn extract_list_item(element: &ElementRef) -> Option<ListItem> {
                 };
                 let mut nl = ListContent::new(lt);
                 for subchild in child_ref.children() {
-                    if let Some(sub_ref) = ElementRef::wrap(subchild) {
-                        if sub_ref.value().name() == "li" {
-                            if let Some(item) = extract_list_item(&sub_ref) {
+                    if let Some(sub_ref) = ElementRef::wrap(subchild)
+                        && sub_ref.value().name() == "li"
+                            && let Some(item) = extract_list_item(&sub_ref) {
                                 nl.add_item(item);
                             }
-                        }
-                    }
                 }
                 if !nl.is_empty() {
                     nested_list = Some(nl);
@@ -377,7 +371,7 @@ pub fn extract_definition_list(element: &ElementRef, _config: &ParserConfig) -> 
                     .to_string();
                 if !text.is_empty() {
                     let item_text = if let Some(ref term) = current_term {
-                        format!("{}: {}", term, text)
+                        format!("{term}: {text}")
                     } else {
                         text
                     };
@@ -419,8 +413,8 @@ pub fn extract_table(element: &ElementRef, _config: &ParserConfig) -> TableConte
     let mut table = TableContent::new();
 
     // 提取表格标题
-    if let Some(caption_sel) = try_parse_selector("caption") {
-        if let Some(caption_el) = element.select(&caption_sel).next() {
+    if let Some(caption_sel) = try_parse_selector("caption")
+        && let Some(caption_el) = element.select(&caption_sel).next() {
             let caption: String = caption_el
                 .text()
                 .collect::<Vec<_>>()
@@ -431,7 +425,6 @@ pub fn extract_table(element: &ElementRef, _config: &ParserConfig) -> TableConte
                 table.caption = Some(caption);
             }
         }
-    }
 
     // 提取表头（thead 中的行）
     if let Some(thead_sel) = try_parse_selector("thead") {
@@ -462,14 +455,13 @@ pub fn extract_table(element: &ElementRef, _config: &ParserConfig) -> TableConte
         } else {
             // 没有 tbody，直接从 table 下找 tr
             for child in element.children() {
-                if let Some(row_ref) = ElementRef::wrap(child) {
-                    if row_ref.value().name() == "tr" {
+                if let Some(row_ref) = ElementRef::wrap(child)
+                    && row_ref.value().name() == "tr" {
                         let row = extract_table_row(&row_ref);
                         if !row.cells.is_empty() {
                             rows.push(row);
                         }
                     }
-                }
             }
         }
     }
@@ -594,12 +586,11 @@ pub fn extract_code_blocks(document: &Html, _config: &ParserConfig) -> Vec<CodeB
     };
 
     for pre_element in document.select(&pre_selector) {
-        if let Some(code_el) = pre_element.child_elements().next() {
-            if code_el.value().name() == "code" {
+        if let Some(code_el) = pre_element.child_elements().next()
+            && code_el.value().name() == "code" {
                 let block = extract_code_block(&code_el, false);
                 blocks.push(block);
             }
-        }
     }
 
     // 提取独立的 <code> 元素（内联代码）
@@ -607,13 +598,11 @@ pub fn extract_code_blocks(document: &Html, _config: &ParserConfig) -> Vec<CodeB
         for element in document.select(&code_sel) {
             // 如果已经在 pre 中处理过则跳过
             let parent = element.parent();
-            if let Some(parent_id) = parent {
-                if let Some(parent_ref) = ElementRef::wrap(parent_id) {
-                    if parent_ref.value().name() == "pre" {
+            if let Some(parent_id) = parent
+                && let Some(parent_ref) = ElementRef::wrap(parent_id)
+                    && parent_ref.value().name() == "pre" {
                         continue;
                     }
-                }
-            }
 
             let block = extract_code_block(&element, true);
             blocks.push(block);
@@ -639,16 +628,14 @@ pub fn extract_code_block(element: &ElementRef, is_inline: bool) -> CodeBlock {
         .and_then(|cls| {
             // 常见的格式：language-rust, lang-rust, rust
             for part in cls.split_whitespace() {
-                if let Some(lang) = part.strip_prefix("language-") {
-                    if is_known_language(lang) {
+                if let Some(lang) = part.strip_prefix("language-")
+                    && is_known_language(lang) {
                         return Some(lang.to_string());
                     }
-                }
-                if let Some(lang) = part.strip_prefix("lang-") {
-                    if is_known_language(lang) {
+                if let Some(lang) = part.strip_prefix("lang-")
+                    && is_known_language(lang) {
                         return Some(lang.to_string());
                     }
-                }
                 if is_known_language(part) {
                     return Some(part.to_string());
                 }
@@ -854,7 +841,7 @@ pub fn resolve_image_url(base: &Url, src: &str) -> Option<String> {
     if src.starts_with("//") {
         // 协议相对 URL
         let scheme = base.scheme();
-        return Some(format!("{}:{}", scheme, src));
+        return Some(format!("{scheme}:{src}"));
     }
 
     base.join(src).ok().map(|u| u.to_string())
@@ -900,7 +887,7 @@ mod tests {
 
     #[test]
     fn test_extract_headings_empty() {
-        let html = r#"<html><body><p>没有标题</p></body></html>"#;
+        let html = r"<html><body><p>没有标题</p></body></html>";
         let doc = create_document(html);
         let headings = extract_headings(&doc);
         assert!(headings.is_empty());
@@ -908,7 +895,7 @@ mod tests {
 
     #[test]
     fn test_extract_headings_ignores_empty() {
-        let html = r#"<html><body><h1> </h1><h2>内容</h2></body></html>"#;
+        let html = r"<html><body><h1> </h1><h2>内容</h2></body></html>";
         let doc = create_document(html);
         let headings = extract_headings(&doc);
         assert_eq!(headings.len(), 1);
@@ -929,7 +916,7 @@ mod tests {
 
     #[test]
     fn test_get_main_heading_fallback_to_h2() {
-        let html = r#"<html><body><h2>次级标题</h2></body></html>"#;
+        let html = r"<html><body><h2>次级标题</h2></body></html>";
         let doc = create_document(html);
         let main = get_main_heading(&doc);
         assert!(main.is_some());
@@ -938,7 +925,7 @@ mod tests {
 
     #[test]
     fn test_get_main_heading_none() {
-        let html = r#"<html><body><p>无标题</p></body></html>"#;
+        let html = r"<html><body><p>无标题</p></body></html>";
         let doc = create_document(html);
         let main = get_main_heading(&doc);
         assert!(main.is_none());
@@ -978,11 +965,11 @@ mod tests {
 
     #[test]
     fn test_extract_paragraphs_basic() {
-        let html = r#"<html><body>
+        let html = r"<html><body>
             <p>第一段文字内容。</p>
             <p>第二段文字内容，长度足够长。</p>
             <p>短</p>
-        </body></html>"#;
+        </body></html>";
         let doc = create_document(html);
         let paragraphs = extract_paragraphs(&doc, 5);
         assert_eq!(paragraphs.len(), 2);
@@ -991,7 +978,7 @@ mod tests {
 
     #[test]
     fn test_extract_paragraphs_empty() {
-        let html = r#"<html><body></body></html>"#;
+        let html = r"<html><body></body></html>";
         let doc = create_document(html);
         let paragraphs = extract_paragraphs(&doc, 1);
         assert!(paragraphs.is_empty());
@@ -1001,13 +988,13 @@ mod tests {
 
     #[test]
     fn test_extract_lists_unordered() {
-        let html = r#"<html><body>
+        let html = r"<html><body>
             <ul>
                 <li>苹果</li>
                 <li>香蕉</li>
                 <li>樱桃</li>
             </ul>
-        </body></html>"#;
+        </body></html>";
         let doc = create_document(html);
         let lists = extract_lists(&doc, &default_config());
         assert_eq!(lists.len(), 1);
@@ -1018,12 +1005,12 @@ mod tests {
 
     #[test]
     fn test_extract_lists_ordered() {
-        let html = r#"<html><body>
+        let html = r"<html><body>
             <ol>
                 <li>第一</li>
                 <li>第二</li>
             </ol>
-        </body></html>"#;
+        </body></html>";
         let doc = create_document(html);
         let lists = extract_lists(&doc, &default_config());
         assert_eq!(lists.len(), 1);
@@ -1032,7 +1019,7 @@ mod tests {
 
     #[test]
     fn test_extract_list_with_nested() {
-        let html = r#"<html><body>
+        let html = r"<html><body>
             <ul>
                 <li>
                     水果
@@ -1043,7 +1030,7 @@ mod tests {
                 </li>
                 <li>蔬菜</li>
             </ul>
-        </body></html>"#;
+        </body></html>";
         let doc = create_document(html);
         let lists = extract_lists(&doc, &default_config());
         assert_eq!(lists.len(), 1);
@@ -1057,12 +1044,12 @@ mod tests {
 
     #[test]
     fn test_extract_list_skips_empty_items() {
-        let html = r#"<html><body>
+        let html = r"<html><body>
             <ul>
                 <li></li>
                 <li>有效项</li>
             </ul>
-        </body></html>"#;
+        </body></html>";
         let doc = create_document(html);
         let lists = extract_lists(&doc, &default_config());
         assert_eq!(lists[0].items.len(), 1);
@@ -1070,14 +1057,14 @@ mod tests {
 
     #[test]
     fn test_extract_definition_list_basic() {
-        let html = r#"<html><body>
+        let html = r"<html><body>
             <dl>
                 <dt>HTML</dt>
                 <dd>超文本标记语言</dd>
                 <dt>CSS</dt>
                 <dd>层叠样式表</dd>
             </dl>
-        </body></html>"#;
+        </body></html>";
         let doc = create_document(html);
         let lists = extract_lists(&doc, &default_config());
         assert_eq!(lists.len(), 1);
@@ -1089,12 +1076,12 @@ mod tests {
 
     #[test]
     fn test_extract_definition_list_dt_only() {
-        let html = r#"<html><body>
+        let html = r"<html><body>
             <dl>
                 <dt>术语一</dt>
                 <dt>术语二</dt>
             </dl>
-        </body></html>"#;
+        </body></html>";
         let doc = create_document(html);
         let lists = extract_lists(&doc, &default_config());
         assert!(lists.is_empty() || lists[0].items.is_empty());
@@ -1104,7 +1091,7 @@ mod tests {
 
     #[test]
     fn test_extract_tables_basic() {
-        let html = r#"<html><body>
+        let html = r"<html><body>
             <table>
                 <thead>
                     <tr><th>姓名</th><th>年龄</th></tr>
@@ -1114,7 +1101,7 @@ mod tests {
                     <tr><td>李四</td><td>30</td></tr>
                 </tbody>
             </table>
-        </body></html>"#;
+        </body></html>";
         let doc = create_document(html);
         let tables = extract_tables(&doc, &default_config());
         assert_eq!(tables.len(), 1);
@@ -1126,12 +1113,12 @@ mod tests {
 
     #[test]
     fn test_extract_tables_no_thead() {
-        let html = r#"<html><body>
+        let html = r"<html><body>
             <table>
                 <tr><td>A</td><td>B</td></tr>
                 <tr><td>C</td><td>D</td></tr>
             </table>
-        </body></html>"#;
+        </body></html>";
         let doc = create_document(html);
         let tables = extract_tables(&doc, &default_config());
         assert_eq!(tables.len(), 1);
@@ -1157,10 +1144,10 @@ mod tests {
 
     #[test]
     fn test_extract_table_with_caption() {
-        let html = r#"<html><body><table>
+        let html = r"<html><body><table>
             <caption>用户信息表</caption>
             <tr><th>ID</th><th>名称</th></tr>
-        </table></body></html>"#;
+        </table></body></html>";
         let doc = create_document(html);
         let tables = extract_tables(&doc, &default_config());
         assert_eq!(tables[0].caption.as_deref(), Some("用户信息表"));
@@ -1183,9 +1170,9 @@ mod tests {
 
     #[test]
     fn test_extract_code_blocks_inline() {
-        let html = r#"<html><body>
+        let html = r"<html><body>
             <p>使用 <code>println!</code> 宏输出</p>
-        </body></html>"#;
+        </body></html>";
         let doc = create_document(html);
         let blocks = extract_code_blocks(&doc, &default_config());
         let inline_blocks: Vec<_> = blocks.iter().filter(|b| b.is_inline).collect();
@@ -1194,10 +1181,10 @@ mod tests {
 
     #[test]
     fn test_extract_code_blocks_skips_inline_inside_pre() {
-        let html = r#"<html><body>
+        let html = r"<html><body>
             <pre><code>块级代码</code></pre>
             <p><code>内联代码</code></p>
-        </body></html>"#;
+        </body></html>";
         let doc = create_document(html);
         let blocks = extract_code_blocks(&doc, &default_config());
         let inline_blocks: Vec<_> = blocks.iter().filter(|b| b.is_inline).collect();
@@ -1256,12 +1243,12 @@ mod tests {
 
     #[test]
     fn test_extract_quotes_with_inner_cite() {
-        let html = r#"<html><body>
+        let html = r"<html><body>
             <blockquote>
                 知识就是力量。
                 <cite>弗朗西斯·培根</cite>
             </blockquote>
-        </body></html>"#;
+        </body></html>";
         let doc = create_document(html);
         let quotes = extract_quotes(&doc, &default_config());
         assert!(quotes[0].cite_url.is_some());
@@ -1269,10 +1256,10 @@ mod tests {
 
     #[test]
     fn test_extract_quotes_filters_short() {
-        let html = r#"<html><body>
+        let html = r"<html><body>
             <blockquote>短</blockquote>
             <blockquote>这是一段足够长的引用文字，长度超过十个字符。</blockquote>
-        </body></html>"#;
+        </body></html>";
         let doc = create_document(html);
         let quotes = extract_quotes(&doc, &default_config());
         assert_eq!(quotes.len(), 1);

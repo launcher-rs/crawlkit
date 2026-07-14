@@ -3,12 +3,13 @@
 //! 负责管理回调链、调度 HTTP 请求、跟踪已访问 URL 防止重复。
 //! 设计参考 Go colly 的 Collector，采用 Builder + 回调模式。
 
+use futures::stream::{FuturesUnordered, StreamExt};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use regex::Regex;
-use tokio::sync::Semaphore;
+use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 use tracing::{debug, instrument, warn};
 
 use crawlkit_core::client::HttpClient;
@@ -35,7 +36,7 @@ const DEFAULT_MAX_CONCURRENCY: usize = 16;
 /// 回调函数类型别名（Arc 使得 Collector 可 Clone、回调可共享）
 type RequestCallback = Arc<dyn Fn(&mut Request) + Send + Sync>;
 type ResponseCallback = Arc<dyn Fn(&Response) + Send + Sync>;
-type HtmlCallback = Arc<dyn Fn(&str, &str) + Send + Sync>;
+type HtmlCallback = Arc<dyn Fn(&HtmlContext) + Send + Sync>;
 type ErrorCallback = Arc<dyn Fn(&dyn std::error::Error) + Send + Sync>;
 type ResponseHeadersCallback = Arc<dyn Fn(&Response) + Send + Sync>;
 type ScrapedCallback = Arc<dyn Fn(&Response) + Send + Sync>;
@@ -45,6 +46,34 @@ type HtmlElementCallback = Arc<dyn Fn(&Element) + Send + Sync>;
 
 /// XML 元素回调（XPath 匹配）
 type XmlElementCallback = Arc<dyn Fn(&Element) + Send + Sync>;
+
+/// 传递给 `on_html` 回调的上下文
+pub struct HtmlContext<'a> {
+    /// 页面 HTML 内容
+    pub body: &'a str,
+    /// 当前页面 URL（重定向后的最终 URL）
+    pub url: &'a str,
+}
+
+// ── 共享爬取状态 ──
+//
+// 在 `Clone` 和 `run()` 多任务场景下跨实例共享，保证去重、限速一致性。
+
+struct CrawlState {
+    visited: Mutex<std::collections::HashSet<String>>,
+    domain_semaphores: Mutex<HashMap<String, Arc<Semaphore>>>,
+    last_request_time: Mutex<HashMap<String, Instant>>,
+}
+
+impl CrawlState {
+    fn new() -> Self {
+        Self {
+            visited: Mutex::new(std::collections::HashSet::new()),
+            domain_semaphores: Mutex::new(HashMap::new()),
+            last_request_time: Mutex::new(HashMap::new()),
+        }
+    }
+}
 
 /// 域名限速规则
 #[derive(Debug, Clone)]
@@ -109,24 +138,6 @@ pub struct Element<'a> {
 }
 
 impl<'a> Element<'a> {
-    fn new(
-        name: String,
-        url: &'a str,
-        text: String,
-        attrs: HashMap<String, String>,
-        html: String,
-        index: usize,
-    ) -> Self {
-        Self {
-            name,
-            url,
-            text,
-            attrs,
-            html,
-            index,
-        }
-    }
-
     /// 获取元素的纯文本内容
     pub fn text(&self) -> &str {
         &self.text
@@ -235,6 +246,11 @@ pub struct Collector {
     /// HTTP 客户端（可替换）
     http_client: Arc<dyn HttpClient>,
 
+    /// 共享爬取状态（visited / 限速信号量 / 上次请求时间）
+    ///
+    /// 在 Clone 和 `run()` 多任务场景下共享同一份状态。
+    shared: Arc<CrawlState>,
+
     /// 请求前回调
     on_request: Option<RequestCallback>,
 
@@ -259,9 +275,6 @@ pub struct Collector {
     /// 抓取完成回调（所有回调执行完毕后触发）
     on_scraped: Option<ScrapedCallback>,
 
-    /// 已访问 URL 集合（防重复）
-    visited: Arc<Mutex<std::collections::HashSet<String>>>,
-
     /// 全局默认请求头
     default_headers: HashMap<String, String>,
 
@@ -283,12 +296,6 @@ pub struct Collector {
     // ── 以下为 Colly 风格新增字段 ──
     /// 按域名限速规则
     limit_rules: Vec<LimitRule>,
-
-    /// 按域名的并发信号量（延迟初始化）
-    domain_semaphores: Arc<Mutex<HashMap<String, Arc<Semaphore>>>>,
-
-    /// 按域名的最后请求时间
-    last_request_time: Arc<Mutex<HashMap<String, Instant>>>,
 
     /// URL 白名单正则（空 = 不限制）
     url_filters: Vec<Regex>,
@@ -344,6 +351,7 @@ impl Collector {
     pub fn with_client(client: impl HttpClient + 'static) -> Self {
         Self {
             http_client: Arc::new(client),
+            shared: Arc::new(CrawlState::new()),
             on_request: None,
             on_response_headers: None,
             on_response: None,
@@ -352,7 +360,6 @@ impl Collector {
             on_html_elements: Vec::new(),
             on_xml_elements: Vec::new(),
             on_scraped: None,
-            visited: Arc::new(Mutex::new(std::collections::HashSet::new())),
             default_headers: HashMap::new(),
             follow_links: false,
             link_selector: "a[href]".into(),
@@ -360,8 +367,6 @@ impl Collector {
             max_concurrency: 0,
             max_depth: DEFAULT_MAX_DEPTH,
             limit_rules: Vec::new(),
-            domain_semaphores: Arc::new(Mutex::new(HashMap::new())),
-            last_request_time: Arc::new(Mutex::new(HashMap::new())),
             url_filters: Vec::new(),
             disallowed_url_filters: Vec::new(),
             allowed_domains: Vec::new(),
@@ -430,8 +435,8 @@ impl Collector {
 
     /// 注册 HTML 回调
     ///
-    /// 解析到 HTML 内容后调用，可用于提取链接或文章内容。
-    pub fn on_html(&mut self, callback: impl Fn(&str, &str) + Send + Sync + 'static) {
+    /// 解析到 HTML 内容后调用，参数为 [`HtmlContext`]，包含 `body` 和 `url`。
+    pub fn on_html(&mut self, callback: impl Fn(&HtmlContext) + Send + Sync + 'static) {
         self.on_html = Some(Arc::new(callback));
     }
 
@@ -530,7 +535,7 @@ impl Collector {
     ///
     /// 流程：构造 Request → 执行 on_request → 发送 HTTP 请求
     /// → 执行 on_response → 如果是 HTML 则执行 on_html
-    /// → 若启用 follow_links 则递归访问提取的链接
+    /// → 若启用 follow_links 则并发访问提取的链接
     pub async fn visit(&self, url: &str) -> Result<()> {
         debug!(url, "开始访问");
 
@@ -574,6 +579,7 @@ impl Collector {
         // 检查是否已访问
         {
             let visited = self
+                .shared
                 .visited
                 .lock()
                 .map_err(|e| CrawlError::Lock(format!("锁中毒: {e}")))?;
@@ -588,8 +594,8 @@ impl Collector {
             req.headers.entry(k).or_insert(v);
         }
 
-        // 限速等待（按域名延迟 + 并发信号量）
-        self.enforce_limit(&req.url).await;
+        // 限速等待 + 获取并发信号量（permit 在 HTTP 请求期间持有）
+        let _permit = self.enforce_limit(&req.url).await;
 
         // 执行 on_request 回调
         if let Some(ref cb) = self.on_request {
@@ -633,6 +639,7 @@ impl Collector {
         // 标记已访问
         {
             let mut visited = self
+                .shared
                 .visited
                 .lock()
                 .map_err(|e| CrawlError::Lock(format!("锁中毒: {e}")))?;
@@ -652,10 +659,13 @@ impl Collector {
         }
 
         // HTML 内容处理
-        if response.is_html() {
+            if response.is_html() {
             if let Some(ref cb) = self.on_html {
                 debug!("执行 on_html 回调");
-                cb(&response.body, &response.url);
+                cb(&HtmlContext {
+                    body: &response.body,
+                    url: &response.url,
+                });
             }
 
             // on_html_elements: CSS 选择器匹配
@@ -681,8 +691,14 @@ impl Collector {
                                     .map(|(k, v)| (k.local.to_string(), v.to_string()))
                                     .collect();
                                 let html_str = element_ref.html();
-                                let element =
-                                    Element::new(name, &response.url, text, attrs, html_str, idx);
+                                let element = Element {
+                                    name,
+                                    url: &response.url,
+                                    text,
+                                    attrs,
+                                    html: html_str,
+                                    index: idx,
+                                };
                                 cb(&element);
                             }
                         }
@@ -732,7 +748,7 @@ impl Collector {
                 }
             }
 
-            // 链接跟踪
+            // 链接跟踪（并发执行）
             if self.follow_links {
                 let abs_links = extract_absolute_links(
                     &response.body,
@@ -741,17 +757,23 @@ impl Collector {
                     &response.url,
                 )?;
 
-                debug!(count = abs_links.len(), depth, "提取到子链接，递归访问");
-                for link in abs_links {
-                    if !self.is_url_allowed(&link) || !self.is_domain_allowed(&link) {
-                        continue;
-                    }
-                    let mut child_req = Request::get(&link);
-                    for (k, v) in &self.default_headers {
-                        child_req.headers.insert(k.clone(), v.clone());
-                    }
-                    Box::pin(self.do_request(&mut child_req, depth + 1)).await?;
-                }
+                debug!(count = abs_links.len(), depth, "提取到子链接，并发访问");
+                let mut futures: FuturesUnordered<_> = abs_links
+                    .into_iter()
+                    .filter(|link| self.is_url_allowed(link) && self.is_domain_allowed(link))
+                    .map(|link| {
+                        let this = self.clone();
+                        async move {
+                            let mut child_req = Request::get(&link);
+                            for (k, v) in &this.default_headers {
+                                child_req.headers.insert(k.clone(), v.clone());
+                            }
+                            let _ = Box::pin(this.do_request(&mut child_req, depth + 1)).await;
+                        }
+                    })
+                    .collect();
+
+                while futures.next().await.is_some() {}
             }
         }
 
@@ -827,73 +849,77 @@ impl Collector {
         self.limit_rules.iter().find(|r| r.matches(domain))
     }
 
-    /// 限速等待（按域名延迟 + 并发信号量）
-    async fn enforce_limit(&self, url: &str) {
+    /// 限速等待 + 获取并发信号量
+    ///
+    /// 返回的 permit 在 HTTP 请求在途期间持有，请求完成后释放，
+    /// 从而真正限制同一域名的并发请求数。
+    /// 仅当存在匹配的 LimitRule 时才获取信号量。
+    async fn enforce_limit(&self, url: &str) -> Option<OwnedSemaphorePermit> {
         let domain = match url::Url::parse(url)
             .ok()
             .and_then(|u| u.host_str().map(String::from))
         {
             Some(d) => d,
-            None => return,
+            None => return None,
         };
 
-        // 计算需要等待的延迟（锁在计算后立即释放）
-        let delay = self
-            .last_request_time
-            .lock()
-            .map_err(|e| warn!(error = %e, "last_request_time 锁中毒"))
-            .ok()
-            .and_then(|guard| {
-                guard.get(&domain).and_then(|last| {
-                    let elapsed = last.elapsed();
-                    self.find_matching_rule(&domain).and_then(|rule| {
-                        if elapsed < rule.delay {
-                            let mut d = rule.delay.checked_sub(elapsed)?;
-                            if rule.random_delay > Duration::ZERO {
-                                let extra = rand::random::<f64>() * rule.random_delay.as_secs_f64();
-                                d += Duration::from_secs_f64(extra);
-                            }
-                            Some(d)
-                        } else {
-                            None
-                        }
-                    })
-                })
-            });
-        if let Some(d) = delay {
-            tokio::time::sleep(d).await;
+        let rule = self.find_matching_rule(&domain);
+
+        // 仅当存在匹配规则时才执行延迟和并发控制
+        if rule.is_none() {
+            return None;
         }
 
-        // 更新最后请求时间
-        if let Ok(mut guard) = self.last_request_time.lock() {
-            guard.insert(domain.clone(), Instant::now());
-        }
+        let rule = rule.unwrap();
 
-        // 并发信号量（锁在 await 前释放）
-        let parallelism = self
-            .find_matching_rule(&domain)
-            .map_or(1, |r| r.parallelism.max(1));
-        let sem = match self.domain_semaphores.lock() {
-            Ok(mut guard) => guard
-                .entry(domain.clone())
-                .or_insert_with(|| Arc::new(Semaphore::new(parallelism)))
-                .clone(),
-            Err(e) => {
-                warn!(error = %e, "domain_semaphores 锁中毒");
-                return;
+        // 计算并执行延迟等待
+        {
+            let last_time = self
+                .shared
+                .last_request_time
+                .lock()
+                .ok()?
+                .get(&domain)
+                .copied();
+            if let Some(last) = last_time {
+                let elapsed = last.elapsed();
+                if elapsed < rule.delay {
+                    let mut d = rule.delay - elapsed;
+                    if rule.random_delay > Duration::ZERO {
+                        let extra =
+                            rand::random::<f64>() * rule.random_delay.as_secs_f64();
+                        d += Duration::from_secs_f64(extra);
+                    }
+                    tokio::time::sleep(d).await;
+                }
             }
-        };
-        let _permit = sem.acquire().await;
-        // permit 在此释放
+            // 更新最后请求时间
+            if let Ok(mut guard) = self.shared.last_request_time.lock() {
+                guard.insert(domain.clone(), Instant::now());
+            }
+        }
+
+        // 获取并发信号量（OwnedSemaphorePermit 不受生命周期约束，可跨函数持有）
+        let parallelism = rule.parallelism.max(1);
+        let sem = self
+            .shared
+            .domain_semaphores
+            .lock()
+            .ok()?
+            .entry(domain)
+            .or_insert_with(|| Arc::new(Semaphore::new(parallelism)))
+            .clone();
+        sem.acquire_owned().await.ok()
     }
 }
 
-// ── Clone（共享 HTTP 后端 + 回调，不共享 visited/限速状态） ──
+// ── Clone（共享 HTTP 后端 + 回调 + 爬取状态） ──
 
 impl Clone for Collector {
     fn clone(&self) -> Self {
         Self {
             http_client: self.http_client.clone(),
+            shared: self.shared.clone(),
             on_request: self.on_request.clone(),
             on_response_headers: self.on_response_headers.clone(),
             on_response: self.on_response.clone(),
@@ -902,7 +928,6 @@ impl Clone for Collector {
             on_html_elements: self.on_html_elements.clone(),
             on_xml_elements: self.on_xml_elements.clone(),
             on_scraped: self.on_scraped.clone(),
-            visited: Arc::new(Mutex::new(std::collections::HashSet::new())),
             default_headers: self.default_headers.clone(),
             follow_links: self.follow_links,
             link_selector: self.link_selector.clone(),
@@ -910,8 +935,6 @@ impl Clone for Collector {
             max_concurrency: self.max_concurrency,
             max_depth: self.max_depth,
             limit_rules: self.limit_rules.clone(),
-            domain_semaphores: Arc::new(Mutex::new(HashMap::new())),
-            last_request_time: Arc::new(Mutex::new(HashMap::new())),
             url_filters: self.url_filters.clone(),
             disallowed_url_filters: self.disallowed_url_filters.clone(),
             allowed_domains: self.allowed_domains.clone(),
@@ -923,13 +946,14 @@ impl Clone for Collector {
 // ── Colly 风格新增方法 ──
 
 impl Collector {
-    /// 创建 Collector 的配置副本（共享 HTTP 后端，不复制回调，独立 visited 集）
+    /// 创建 Collector 的配置副本（共享 HTTP 后端 + 爬取状态，不复制回调，独立 visited 集）
     ///
     /// 相当于 Colly 的 `Clone()` 方法的无回调版本。可用于多 Collector 协作场景：
     /// 一个爬列表页提取链接，克隆的 Collector 爬详情页。
     pub fn clone_config(&self) -> Self {
         Self {
             http_client: self.http_client.clone(),
+            shared: Arc::new(CrawlState::new()),
             on_request: None,
             on_response_headers: None,
             on_response: None,
@@ -938,7 +962,6 @@ impl Collector {
             on_html_elements: Vec::new(),
             on_xml_elements: Vec::new(),
             on_scraped: None,
-            visited: Arc::new(Mutex::new(std::collections::HashSet::new())),
             default_headers: self.default_headers.clone(),
             follow_links: self.follow_links,
             link_selector: self.link_selector.clone(),
@@ -946,8 +969,6 @@ impl Collector {
             max_concurrency: self.max_concurrency,
             max_depth: self.max_depth,
             limit_rules: self.limit_rules.clone(),
-            domain_semaphores: Arc::new(Mutex::new(HashMap::new())),
-            last_request_time: Arc::new(Mutex::new(HashMap::new())),
             url_filters: self.url_filters.clone(),
             disallowed_url_filters: self.disallowed_url_filters.clone(),
             allowed_domains: self.allowed_domains.clone(),
@@ -1004,9 +1025,9 @@ impl Collector {
 
     /// 并发运行 URL 批处理 —— Colly 风格的 Async + Wait
     ///
-    /// 在 `Arc<Collector>` 上调用，通过信号量控制并发（取 LimitRule 中最大 parallelism）。
+    /// 在 `Arc<Collector>` 上调用，通过信号量控制并发（取 LimitRule 中最大 parallelism，否则默认 16）。
     /// 所有请求共享 HTTP 后端、**回调**、visited 去重（**`visit()` 触发完整回调链**）。
-    /// 结果请通过 `on_response` / `on_scraped` 等回调获取。
+    /// 失败仅记录日志，不返回结果。
     ///
     /// # 示例
     /// ```rust,no_run
@@ -1023,12 +1044,20 @@ impl Collector {
     /// }
     /// ```
     pub async fn run(self: Arc<Self>, urls: Vec<String>) {
+        let _results = self.run_with_results(urls).await;
+    }
+
+    /// 并发运行 URL 批处理，返回每个 URL 的抓取结果
+    ///
+    /// 与 [`run`](Self::run) 相同，但返回 `Vec<Result<String>>`，
+    /// `Ok(url)` 表示成功完成回调链，`Err(e)` 表示请求失败。
+    pub async fn run_with_results(self: Arc<Self>, urls: Vec<String>) -> Vec<Result<String>> {
         let max_parallel = self
             .limit_rules
             .iter()
             .map(|r| r.parallelism)
             .max()
-            .unwrap_or(4)
+            .unwrap_or(DEFAULT_MAX_CONCURRENCY)
             .max(1);
 
         let sem = Arc::new(Semaphore::new(max_parallel));
@@ -1044,16 +1073,26 @@ impl Collector {
             };
             let c = self.clone();
             handles.push(tokio::spawn(async move {
-                if let Err(e) = c.visit(&url).await {
-                    warn!("run 请求失败 [{}]: {e}", url);
-                }
+                let result = c.visit(&url).await;
                 drop(permit);
+                match result {
+                    Ok(()) => Ok(url),
+                    Err(e) => {
+                        warn!("run 请求失败 [{}]: {e}", url);
+                        Err(e)
+                    }
+                }
             }));
         }
 
+        let mut results = Vec::with_capacity(handles.len());
         for h in handles {
-            let _ = h.await;
+            match h.await {
+                Ok(r) => results.push(r),
+                Err(e) => results.push(Err(CrawlError::Http(format!("任务 panicked: {e}")))),
+            }
         }
+        results
     }
 }
 
@@ -1077,21 +1116,21 @@ fn xpath_item_to_element<'a>(
                 }
                 let text = tree_node.all_text(tree).trim().to_string();
                 let html_str = element.to_string();
-                Some(Element::new(name, url, text, attrs, html_str, index))
+                Some(Element { name, url, text, attrs, html: html_str, index })
             }
             _ => None,
         },
         XpathItem::Node(Node::NonTreeNode(NonTreeXpathNode::AttributeNode(attr))) => {
             let mut attrs = HashMap::new();
             attrs.insert(attr.name.clone(), attr.value.clone());
-            Some(Element::new(
-                attr.name.clone(),
+            Some(Element {
+                name: attr.name.clone(),
                 url,
-                attr.value.clone(),
+                text: attr.value.clone(),
                 attrs,
-                format!("{}=\"{}\"", attr.name, attr.value),
+                html: format!("{}=\"{}\"", attr.name, attr.value),
                 index,
-            ))
+            })
         }
         _ => None,
     }
@@ -1338,7 +1377,6 @@ mod tests {
 
     #[tokio::test]
     async fn test_max_depth_limits_recursion() {
-        // 每个页面都包含子链接，用于验证深度限制
         let root_html = r#"<html><body>
             <a href="http://test.com/a">link1</a>
             <a href="http://test.com/b">link2</a>
@@ -1346,35 +1384,29 @@ mod tests {
         let child_html = r#"<html><body>
             <a href="http://test.com/c">deep link</a>
         </body></html>"#;
-        // /c 页面也包含链接，但 depth=2 时不应被访问
         let deep_html = r#"<html><body>
             <a href="http://test.com/d">very deep</a>
         </body></html>"#;
 
         let client = MockClient::sequence(vec![
-            // depth 0: root
             Ok(Response {
                 url: "http://test.com".into(),
                 status: 200,
                 headers: HashMap::from([("content-type".into(), "text/html".into())]),
                 body: root_html.to_string(),
             }),
-            // depth 1: /a (包含子链接)
             Ok(Response {
                 url: "http://test.com/a".into(),
                 status: 200,
                 headers: HashMap::from([("content-type".into(), "text/html".into())]),
                 body: child_html.to_string(),
             }),
-            // depth 1: /b (包含子链接)
             Ok(Response {
                 url: "http://test.com/b".into(),
                 status: 200,
                 headers: HashMap::from([("content-type".into(), "text/html".into())]),
                 body: child_html.to_string(),
             }),
-            // depth 2 的 /c 不应被访问，所以不需要准备响应
-            // 如果 depth 2 被执行，MockClient 会返回 "无更多模拟响应" 错误
             Ok(Response {
                 url: "http://test.com/c".into(),
                 status: 200,
@@ -1389,9 +1421,6 @@ mod tests {
 
         c.visit("http://test.com").await.unwrap();
 
-        // depth 0: root (1 request)
-        // depth 1: /a, /b (2 requests)
-        // depth 2: /c, /d 被 max_depth 阻止
         assert_eq!(call_count.load(Ordering::Relaxed), 3);
     }
 
@@ -1503,7 +1532,6 @@ mod tests {
         });
         let order_clone2 = Arc::clone(&order);
         c.on_response(move |_resp| {
-            // on_response should see value 1 (on_response_headers ran first)
             let val = order_clone2.fetch_add(10, Ordering::Relaxed);
             assert_eq!(val, 1, "on_response_headers 应先于 on_response 执行");
         });

@@ -15,8 +15,10 @@ use crate::selector::try_parse_selector;
 /// 表单的 HTTP 方法
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
+#[derive(Default)]
 pub enum FormMethod {
     /// GET 方法
+    #[default]
     Get,
     /// POST 方法
     Post,
@@ -24,11 +26,6 @@ pub enum FormMethod {
     Dialog,
 }
 
-impl Default for FormMethod {
-    fn default() -> Self {
-        Self::Get
-    }
-}
 
 impl FormMethod {
     /// 从字符串解析表单方法（不区分大小写）
@@ -390,7 +387,7 @@ pub fn associate_labels(document: &Html, fields: Vec<FormField>) -> Vec<FormFiel
     let mut field_map: std::collections::HashMap<String, FormField> = std::collections::HashMap::new();
     let mut unmatched: Vec<FormField> = Vec::new();
 
-    for f in fields.into_iter() {
+    for f in fields {
         if let Some(id) = f.id.clone() {
             field_map.insert(id, f);
         } else {
@@ -402,37 +399,34 @@ pub fn associate_labels(document: &Html, fields: Vec<FormField>) -> Vec<FormFiel
         let for_attr = label_elem.value().attr("for");
         let label_text: String = label_elem.text().collect::<Vec<_>>().join(" ").trim().to_string();
 
-        if let Some(for_id) = for_attr {
-            if let Some(field) = field_map.get_mut(for_id) {
+        if let Some(for_id) = for_attr
+            && let Some(field) = field_map.get_mut(for_id) {
                 if field.label.is_none() {
                     field.label = Some(label_text);
                 }
                 continue;
             }
-        }
 
         // 没有 for 属性时，查找 label 包裹的第一个表单控件
         if let Some(child_input) = find_first_form_control(&label_elem) {
             let child_id = child_input.value().attr("id");
             let child_name = child_input.value().attr("name");
 
-            if let Some(id) = child_id {
-                if let Some(field) = field_map.get_mut(id) {
+            if let Some(id) = child_id
+                && let Some(field) = field_map.get_mut(id) {
                     if field.label.is_none() {
                         field.label = Some(label_text);
                     }
                     continue;
                 }
-            }
 
-            if let Some(name) = child_name {
-                if let Some(field) = field_map.values_mut().find(|f| f.name.as_deref() == Some(name)) {
+            if let Some(name) = child_name
+                && let Some(field) = field_map.values_mut().find(|f| f.name.as_deref() == Some(name)) {
                     if field.label.is_none() {
                         field.label = Some(label_text);
                     }
                     continue;
                 }
-            }
         }
     }
 
@@ -470,15 +464,15 @@ pub fn extract_input_field(element: &ElementRef) -> Option<FormField> {
 
     let mut field = FormField::anonymous(field_type);
 
-    field.name = element.value().attr("name").map(|s| s.to_string());
-    field.id = element.value().attr("id").map(|s| s.to_string());
-    field.placeholder = element.value().attr("placeholder").map(|s| s.to_string());
-    field.value = element.value().attr("value").map(|s| s.to_string());
+    field.name = element.value().attr("name").map(std::string::ToString::to_string);
+    field.id = element.value().attr("id").map(std::string::ToString::to_string);
+    field.placeholder = element.value().attr("placeholder").map(std::string::ToString::to_string);
+    field.value = element.value().attr("value").map(std::string::ToString::to_string);
     field.required = element.value().attr("required").is_some();
     field.disabled = element.value().attr("disabled").is_some();
     field.readonly = element.value().attr("readonly").is_some();
-    field.autocomplete = element.value().attr("autocomplete").map(|s| s.to_string());
-    field.pattern = element.value().attr("pattern").map(|s| s.to_string());
+    field.autocomplete = element.value().attr("autocomplete").map(std::string::ToString::to_string);
+    field.pattern = element.value().attr("pattern").map(std::string::ToString::to_string);
     field.min_length = element.value().attr("minlength").and_then(|v| v.parse().ok());
     field.max_length = element.value().attr("maxlength").and_then(|v| v.parse().ok());
 
@@ -494,8 +488,8 @@ pub fn extract_select_field(element: &ElementRef) -> Option<FormField> {
 
     let mut field = FormField::anonymous(FieldType::Select);
 
-    field.name = element.value().attr("name").map(|s| s.to_string());
-    field.id = element.value().attr("id").map(|s| s.to_string());
+    field.name = element.value().attr("name").map(std::string::ToString::to_string);
+    field.id = element.value().attr("id").map(std::string::ToString::to_string);
     field.required = element.value().attr("required").is_some();
     field.disabled = element.value().attr("disabled").is_some();
 
@@ -531,9 +525,9 @@ pub fn extract_textarea_field(element: &ElementRef) -> Option<FormField> {
 
     let mut field = FormField::anonymous(FieldType::Textarea);
 
-    field.name = element.value().attr("name").map(|s| s.to_string());
-    field.id = element.value().attr("id").map(|s| s.to_string());
-    field.placeholder = element.value().attr("placeholder").map(|s| s.to_string());
+    field.name = element.value().attr("name").map(std::string::ToString::to_string);
+    field.id = element.value().attr("id").map(std::string::ToString::to_string);
+    field.placeholder = element.value().attr("placeholder").map(std::string::ToString::to_string);
     field.required = element.value().attr("required").is_some();
     field.disabled = element.value().attr("disabled").is_some();
     field.readonly = element.value().attr("readonly").is_some();
@@ -584,11 +578,11 @@ pub fn extract_form(element: &ElementRef) -> Option<Form> {
 
     let mut form = Form::new();
 
-    form.id = element.value().attr("id").map(|s| s.to_string());
-    form.name = element.value().attr("name").map(|s| s.to_string());
-    form.action = element.value().attr("action").map(|s| s.to_string());
+    form.id = element.value().attr("id").map(std::string::ToString::to_string);
+    form.name = element.value().attr("name").map(std::string::ToString::to_string);
+    form.action = element.value().attr("action").map(std::string::ToString::to_string);
     form.method = FormMethod::from_str(element.value().attr("method").unwrap_or("get"));
-    form.enctype = element.value().attr("enctype").map(|s| s.to_string());
+    form.enctype = element.value().attr("enctype").map(std::string::ToString::to_string);
 
     // 提取字段
     form.fields = extract_form_fields(element);
@@ -704,19 +698,16 @@ pub fn detect_captcha(fields: &[FormField]) -> bool {
 /// 查找 input[type=submit]、button[type=submit] 的 value 或文本内容。
 pub fn extract_submit_text(element: &ElementRef) -> Option<String> {
     let submit_sel = try_parse_selector("input[type=submit], button[type=submit]");
-    let submit_sel = match submit_sel {
-        Some(s) => s,
-        None => return None,
-    };
+    let submit_sel = submit_sel?;
 
     for btn in element.select(&submit_sel) {
         let tag = btn.value().name();
         let text = match tag {
-            "input" => btn.value().attr("value").map(|s| s.to_string()),
+            "input" => btn.value().attr("value").map(std::string::ToString::to_string),
             "button" => {
                 let t: String = btn.text().collect::<Vec<_>>().join(" ").trim().to_string();
                 if t.is_empty() {
-                    btn.value().attr("value").map(|s| s.to_string())
+                    btn.value().attr("value").map(std::string::ToString::to_string)
                 } else {
                     Some(t)
                 }
@@ -763,8 +754,8 @@ pub fn detect_form_type(form: &Form) -> FormType {
     // 收集所有可用于匹配的字符串
     let all_text: Vec<&str> = field_names
         .iter()
-        .map(|s| s.as_str())
-        .chain(field_ids.iter().map(|s| s.as_str()))
+        .map(std::string::String::as_str)
+        .chain(field_ids.iter().map(std::string::String::as_str))
         .chain(std::iter::once(name_lower.as_str()))
         .chain(std::iter::once(id_lower.as_str()))
         .chain(std::iter::once(action_lower.as_str()))
@@ -948,13 +939,13 @@ pub fn has_forms(document: &Html) -> bool {
 /// 检查 HTML 文档中是否包含登录表单
 pub fn has_login_form(document: &Html) -> bool {
     let forms = extract_forms(document);
-    get_login_forms(&forms).first().is_some()
+    !get_login_forms(&forms).is_empty()
 }
 
 /// 检查 HTML 文档中是否包含搜索表单
 pub fn has_search_form(document: &Html) -> bool {
     let forms = extract_forms(document);
-    get_search_forms(&forms).first().is_some()
+    !get_search_forms(&forms).is_empty()
 }
 
 // ============================================================================
@@ -975,7 +966,7 @@ mod tests {
         Html::parse_fragment(html)
     }
 
-    fn first_form_element<'a>(doc: &'a Html) -> ElementRef<'a> {
+    fn first_form_element(doc: &Html) -> ElementRef<'_> {
         let sel = try_parse_selector("form").unwrap();
         doc.select(&sel).next().expect("应存在表单元素")
     }
@@ -1128,7 +1119,7 @@ mod tests {
 
     #[test]
     fn test_extract_input_field_non_input_tag() {
-        let html = r#"<span>不是 input</span>"#;
+        let html = r"<span>不是 input</span>";
         let doc = parse_fragment(html);
         let sel = try_parse_selector("span").unwrap();
         let elem = doc.select(&sel).next().unwrap();
@@ -1171,7 +1162,7 @@ mod tests {
 
     #[test]
     fn test_extract_select_field_non_select_tag() {
-        let html = r#"<div>不是 select</div>"#;
+        let html = r"<div>不是 select</div>";
         let doc = parse_fragment(html);
         let sel = try_parse_selector("div").unwrap();
         let elem = doc.select(&sel).next().unwrap();
@@ -1219,7 +1210,7 @@ mod tests {
 
     #[test]
     fn test_extract_textarea_field_non_textarea_tag() {
-        let html = r#"<p>不是 textarea</p>"#;
+        let html = r"<p>不是 textarea</p>";
         let doc = parse_fragment(html);
         let sel = try_parse_selector("p").unwrap();
         let elem = doc.select(&sel).next().unwrap();
@@ -1234,7 +1225,7 @@ mod tests {
         let sel = try_parse_selector("textarea").unwrap();
         let elem = doc.select(&sel).next().unwrap();
         let field = extract_textarea_field(&elem).unwrap();
-        assert_eq!(field.value, Some("".to_string()));
+        assert_eq!(field.value, Some(String::new()));
     }
 
     // ─── 表单字段提取测试 ────────────────────────────────────
@@ -1264,7 +1255,7 @@ mod tests {
 
     #[test]
     fn test_extract_form_fields_no_form_controls() {
-        let html = r#"<form><p>没有表单控件</p></form>"#;
+        let html = r"<form><p>没有表单控件</p></form>";
         let doc = parse_html(html);
         let form_elem = first_form_element(&doc);
         let fields = extract_form_fields(&form_elem);
@@ -1351,7 +1342,7 @@ mod tests {
 
     #[test]
     fn test_extract_forms_no_forms() {
-        let html = r#"<html><body><p>无表单</p></body></html>"#;
+        let html = r"<html><body><p>无表单</p></body></html>";
         let doc = parse_html(html);
         let forms = extract_forms(&doc);
         assert!(forms.is_empty());
@@ -1359,7 +1350,7 @@ mod tests {
 
     #[test]
     fn test_extract_form_non_form_element() {
-        let html = r#"<div>不是 form</div>"#;
+        let html = r"<div>不是 form</div>";
         let doc = parse_fragment(html);
         let sel = try_parse_selector("div").unwrap();
         let elem = doc.select(&sel).next().unwrap();
@@ -1572,7 +1563,7 @@ mod tests {
                 field_type: FieldType::Hidden,
                 ..FormField::anonymous(FieldType::Hidden)
             }];
-            assert!(detect_csrf_token(&fields), "应检测到 CSRF 字段: {}", name);
+            assert!(detect_csrf_token(&fields), "应检测到 CSRF 字段: {name}");
         }
     }
 
@@ -1736,7 +1727,7 @@ mod tests {
 
     #[test]
     fn test_has_forms_false() {
-        let html = r#"<html><body><p>无表单</p></body></html>"#;
+        let html = r"<html><body><p>无表单</p></body></html>";
         let doc = parse_html(html);
         assert!(!has_forms(&doc));
     }
@@ -1777,7 +1768,7 @@ mod tests {
 
     #[test]
     fn test_has_search_form_false() {
-        let html = r#"<html><body><p>无搜索</p></body></html>"#;
+        let html = r"<html><body><p>无搜索</p></body></html>";
         let doc = parse_html(html);
         assert!(!has_search_form(&doc));
     }
@@ -1908,7 +1899,7 @@ mod tests {
 
     #[test]
     fn test_no_forms_in_empty_document() {
-        let html = r#"<html><head><title>空页面</title></head><body></body></html>"#;
+        let html = r"<html><head><title>空页面</title></head><body></body></html>";
         let doc = parse_html(html);
         let forms = extract_forms(&doc);
         assert!(forms.is_empty());

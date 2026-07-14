@@ -77,26 +77,22 @@ pub fn extract_metadata(document: &Html, base_url: Option<&Url>) -> ParserResult
 
 /// 提取页面标题：依次尝试 og:title、twitter:title、`<title>`、h1
 pub fn extract_title(document: &Html) -> Option<String> {
-    if let Some(sel) = try_parse_selector(&meta_property_selector("og:title")) {
-        if let Some(el) = document.select(&sel).next() {
-            if let Some(content) = el.value().attr("content") {
+    if let Some(sel) = try_parse_selector(&meta_property_selector("og:title"))
+        && let Some(el) = document.select(&sel).next()
+            && let Some(content) = el.value().attr("content") {
                 let text = content.trim().to_string();
                 if !text.is_empty() {
                     return Some(text);
                 }
             }
-        }
-    }
-    if let Some(sel) = try_parse_selector(&meta_name_selector("twitter:title")) {
-        if let Some(el) = document.select(&sel).next() {
-            if let Some(content) = el.value().attr("content") {
+    if let Some(sel) = try_parse_selector(&meta_name_selector("twitter:title"))
+        && let Some(el) = document.select(&sel).next()
+            && let Some(content) = el.value().attr("content") {
                 let text = content.trim().to_string();
                 if !text.is_empty() {
                     return Some(text);
                 }
             }
-        }
-    }
     let title_sel = &SELECTORS.title;
     if let Some(el) = document.select(title_sel).next() {
         let text: String = el.text().collect::<Vec<_>>().join("").trim().to_string();
@@ -104,120 +100,104 @@ pub fn extract_title(document: &Html) -> Option<String> {
             return Some(text);
         }
     }
-    if let Some(sel) = try_parse_selector("h1") {
-        if let Some(el) = document.select(&sel).next() {
+    if let Some(sel) = try_parse_selector("h1")
+        && let Some(el) = document.select(&sel).next() {
             let text: String = el.text().collect::<Vec<_>>().join("").trim().to_string();
             if !text.is_empty() {
                 return Some(text);
             }
         }
-    }
     None
 }
 
 /// 提取字符编码声明
 pub fn extract_charset(document: &Html) -> Option<String> {
-    if let Some(sel) = try_parse_selector("meta[charset]") {
-        if let Some(el) = document.select(&sel).next() {
-            if let Some(charset) = el.value().attr("charset") {
+    if let Some(sel) = try_parse_selector("meta[charset]")
+        && let Some(el) = document.select(&sel).next()
+            && let Some(charset) = el.value().attr("charset") {
                 let val = charset.trim().to_string();
                 if !val.is_empty() {
                     return Some(val);
                 }
             }
-        }
-    }
-    if let Some(sel) = try_parse_selector(r#"meta[http-equiv="Content-Type"]"#) {
-        if let Some(el) = document.select(&sel).next() {
-            if let Some(content) = el.value().attr("content") {
-                if let Some(pos) = content.to_lowercase().find("charset=") {
+    if let Some(sel) = try_parse_selector(r#"meta[http-equiv="Content-Type"]"#)
+        && let Some(el) = document.select(&sel).next()
+            && let Some(content) = el.value().attr("content")
+                && let Some(pos) = content.to_lowercase().find("charset=") {
                     let charset = content[pos + 8..].trim().to_string();
                     if !charset.is_empty() {
                         return Some(charset);
                     }
                 }
-            }
-        }
-    }
     None
 }
 
 /// 提取页面语言：优先 `<html lang>`，其次 `http-equiv="content-language"`
 pub fn extract_language(document: &Html) -> Option<String> {
     let html_sel = &SELECTORS.html;
-    if let Some(el) = document.select(html_sel).next() {
-        if let Some(lang) = el.value().attr("lang") {
+    if let Some(el) = document.select(html_sel).next()
+        && let Some(lang) = el.value().attr("lang") {
             let val = lang.trim().to_string();
             if !val.is_empty() {
                 return Some(val);
             }
         }
-    }
-    if let Some(sel) = try_parse_selector(r#"meta[http-equiv="content-language"]"#) {
-        if let Some(el) = document.select(&sel).next() {
-            if let Some(content) = el.value().attr("content") {
+    if let Some(sel) = try_parse_selector(r#"meta[http-equiv="content-language"]"#)
+        && let Some(el) = document.select(&sel).next()
+            && let Some(content) = el.value().attr("content") {
                 let val = content.trim().to_string();
                 if !val.is_empty() {
                     return Some(val);
                 }
             }
-        }
-    }
     None
 }
 
 /// 提取 `<base>` 标签的 href 值
 pub fn extract_base_url(document: &Html) -> Option<String> {
     let base_sel = &SELECTORS.base;
-    if let Some(el) = document.select(base_sel).next() {
-        if let Some(href) = el.value().attr("href") {
+    if let Some(el) = document.select(base_sel).next()
+        && let Some(href) = el.value().attr("href") {
             let val = href.trim().to_string();
             if !val.is_empty() {
                 return Some(val);
             }
         }
-    }
     None
 }
 
 /// 通用 meta 内容提取，同时尝试 `name` 和 `property` 属性
 pub fn extract_meta_content(document: &Html, name: &str) -> Option<String> {
-    if let Some(sel) = try_parse_selector(&meta_name_selector(name)) {
-        if let Some(el) = document.select(&sel).next() {
-            if let Some(content) = el.value().attr("content") {
+    if let Some(sel) = try_parse_selector(&meta_name_selector(name))
+        && let Some(el) = document.select(&sel).next()
+            && let Some(content) = el.value().attr("content") {
                 let val = content.trim().to_string();
                 if !val.is_empty() {
                     return Some(val);
                 }
             }
-        }
-    }
-    if let Some(sel) = try_parse_selector(&meta_property_selector(name)) {
-        if let Some(el) = document.select(&sel).next() {
-            if let Some(content) = el.value().attr("content") {
+    if let Some(sel) = try_parse_selector(&meta_property_selector(name))
+        && let Some(el) = document.select(&sel).next()
+            && let Some(content) = el.value().attr("content") {
                 let val = content.trim().to_string();
                 if !val.is_empty() {
                     return Some(val);
                 }
             }
-        }
-    }
     None
 }
 
 /// 提取关键词：从 `<meta name="keywords">` 解析，逗号分隔
 pub fn extract_keywords(document: &Html) -> Vec<String> {
-    if let Some(sel) = try_parse_selector(&meta_name_selector("keywords")) {
-        if let Some(el) = document.select(&sel).next() {
-            if let Some(content) = el.value().attr("content") {
+    if let Some(sel) = try_parse_selector(&meta_name_selector("keywords"))
+        && let Some(el) = document.select(&sel).next()
+            && let Some(content) = el.value().attr("content") {
                 return content
                     .split(',')
                     .map(|s| s.trim().to_string())
                     .filter(|s| !s.is_empty())
                     .collect();
             }
-        }
-    }
     Vec::new()
 }
 
@@ -227,13 +207,11 @@ pub fn extract_keywords(document: &Html) -> Vec<String> {
 
 /// 提取规范链接 `<link rel="canonical">`
 pub fn extract_canonical(document: &Html, base_url: Option<&Url>) -> Option<String> {
-    if let Some(sel) = try_parse_selector(&link_rel_selector("canonical")) {
-        if let Some(el) = document.select(&sel).next() {
-            if let Some(href) = el.value().attr("href") {
+    if let Some(sel) = try_parse_selector(&link_rel_selector("canonical"))
+        && let Some(el) = document.select(&sel).next()
+            && let Some(href) = el.value().attr("href") {
                 return resolve_url(base_url, href);
             }
-        }
-    }
     None
 }
 
@@ -259,13 +237,11 @@ pub fn extract_favicon(document: &Html, base_url: Option<&Url>) -> Option<String
 
 /// 提取苹果触控图标
 pub fn extract_apple_touch_icon(document: &Html, base_url: Option<&Url>) -> Option<String> {
-    if let Some(sel) = try_parse_selector("link[rel='apple-touch-icon'], link[rel='apple-touch-icon-precomposed']") {
-        if let Some(el) = document.select(&sel).next() {
-            if let Some(href) = el.value().attr("href") {
+    if let Some(sel) = try_parse_selector("link[rel='apple-touch-icon'], link[rel='apple-touch-icon-precomposed']")
+        && let Some(el) = document.select(&sel).next()
+            && let Some(href) = el.value().attr("href") {
                 return resolve_url(base_url, href);
             }
-        }
-    }
     None
 }
 
@@ -277,7 +253,7 @@ pub fn extract_apple_touch_icon(document: &Html, base_url: Option<&Url>) -> Opti
 pub fn extract_robots(document: &Html) -> RobotsMeta {
     let content = if let Some(sel) = try_parse_selector("meta[name='robots'], meta[name='ROBOTS']") {
         document.select(&sel).next()
-            .and_then(|el| el.value().attr("content").map(|c| c.to_string()))
+            .and_then(|el| el.value().attr("content").map(std::string::ToString::to_string))
     } else {
         None
     };
@@ -357,16 +333,14 @@ pub fn extract_opengraph(document: &Html) -> OpenGraph {
 
 /// 提取单个 Open Graph 属性值
 pub fn extract_og_property(document: &Html, property: &str) -> Option<String> {
-    if let Some(sel) = try_parse_selector(&meta_property_selector(property)) {
-        if let Some(el) = document.select(&sel).next() {
-            if let Some(content) = el.value().attr("content") {
+    if let Some(sel) = try_parse_selector(&meta_property_selector(property))
+        && let Some(el) = document.select(&sel).next()
+            && let Some(content) = el.value().attr("content") {
                 let val = content.trim().to_string();
                 if !val.is_empty() {
                     return Some(val);
                 }
             }
-        }
-    }
     None
 }
 
@@ -381,11 +355,10 @@ pub fn extract_all_og_properties(document: &Html) -> HashMap<String, String> {
     for el in document.select(meta_sel) {
         if let Some(property) = el.value().attr("property") {
             let prop_lower = property.to_lowercase();
-            if prop_lower.starts_with("og:") && !known.contains(&prop_lower.as_str()) {
-                if let Some(content) = el.value().attr("content") {
+            if prop_lower.starts_with("og:") && !known.contains(&prop_lower.as_str())
+                && let Some(content) = el.value().attr("content") {
                     extras.insert(property.to_string(), content.to_string());
                 }
-            }
         }
     }
     extras
@@ -422,16 +395,14 @@ pub fn extract_twitter_card(document: &Html) -> TwitterCard {
 
 /// 提取单个 Twitter Card 属性值
 pub fn extract_twitter_property(document: &Html, name: &str) -> Option<String> {
-    if let Some(sel) = try_parse_selector(&meta_name_selector(name)) {
-        if let Some(el) = document.select(&sel).next() {
-            if let Some(content) = el.value().attr("content") {
+    if let Some(sel) = try_parse_selector(&meta_name_selector(name))
+        && let Some(el) = document.select(&sel).next()
+            && let Some(content) = el.value().attr("content") {
                 let val = content.trim().to_string();
                 if !val.is_empty() {
                     return Some(val);
                 }
             }
-        }
-    }
     None
 }
 
@@ -446,11 +417,10 @@ pub fn extract_all_twitter_properties(document: &Html) -> HashMap<String, String
     for el in document.select(meta_sel) {
         if let Some(name) = el.value().attr("name") {
             let name_lower = name.to_lowercase();
-            if name_lower.starts_with("twitter:") && !known.contains(&name_lower.as_str()) {
-                if let Some(content) = el.value().attr("content") {
+            if name_lower.starts_with("twitter:") && !known.contains(&name_lower.as_str())
+                && let Some(content) = el.value().attr("content") {
                     extras.insert(name.to_string(), content.to_string());
                 }
-            }
         }
     }
     extras
@@ -531,7 +501,7 @@ pub fn extract_microdata(document: &Html) -> Vec<StructuredData> {
             let itemtype = el.value().attr("itemtype")
                 .and_then(|t| t.rsplit('/').next())
                 .or_else(|| el.value().attr("itemtype"))
-                .map(|t| t.to_string());
+                .map(std::string::ToString::to_string);
 
             let mut sd = match itemtype {
                 Some(ref t) => StructuredData::microdata(t),
@@ -592,9 +562,9 @@ pub fn extract_custom_meta(document: &Html) -> HashMap<String, String> {
     for el in document.select(meta_sel) {
         let name = el.value().attr("name")
             .or_else(|| el.value().attr("property"))
-            .map(|n| n.to_string());
+            .map(std::string::ToString::to_string);
         let content = el.value().attr("content")
-            .map(|c| c.to_string());
+            .map(std::string::ToString::to_string);
         match (name, content) {
             (Some(n), Some(c)) if !n.is_empty() && !c.is_empty() => {
                 let n_lower = n.to_lowercase();
@@ -1068,7 +1038,7 @@ mod tests {
     #[test]
     fn find_largest_icon_无尺寸时选第一个() {
         let candidates = vec![
-            ("/icon.png".to_string(), "".to_string()),
+            ("/icon.png".to_string(), String::new()),
             ("/other.png".to_string(), "any".to_string()),
         ];
         assert_eq!(find_largest_icon(&candidates), "/icon.png");

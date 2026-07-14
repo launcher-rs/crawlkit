@@ -376,13 +376,11 @@ impl LinkExtractor {
             score -= 1.5;
         }
 
-        if let Ok(url) = Url::parse(&c.url) {
-            if let Some(host) = url.host_str() {
-                if !host.is_empty() && host != base_host {
+        if let Ok(url) = Url::parse(&c.url)
+            && let Some(host) = url.host_str()
+                && !host.is_empty() && host != base_host {
                     score -= 2.0;
                 }
-            }
-        }
 
         if self.config.non_article_paths.iter().any(|p| c.url.contains(p)) {
             score -= 2.0;
@@ -395,9 +393,7 @@ impl LinkExtractor {
 fn resolve_url(base: &Option<Url>, href: &str) -> String {
     match base {
         Some(b) => b
-            .join(href)
-            .map(|u| u.to_string())
-            .unwrap_or_else(|_| href.to_string()),
+            .join(href).map_or_else(|_| href.to_string(), |u| u.to_string()),
         None => href.to_string(),
     }
 }

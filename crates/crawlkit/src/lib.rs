@@ -49,4 +49,4 @@ pub mod media {
 pub mod collector;
 pub mod log;
 
-pub use collector::{Collector, Element, LimitRule};
+pub use collector::{Collector, Element, HtmlContext, LimitRule};

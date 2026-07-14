@@ -92,11 +92,10 @@ pub fn extract_embeds(document: &Html, base_url: Option<&Url>) -> Vec<EmbeddedMe
 pub(crate) fn is_within_noscript(el: &ElementRef) -> bool {
     let mut current = el.parent();
     while let Some(p) = current {
-        if let Node::Element(element) = p.value() {
-            if element.name() == "noscript" {
+        if let Node::Element(element) = p.value()
+            && element.name() == "noscript" {
                 return true;
             }
-        }
         current = p.parent();
     }
     false
@@ -125,13 +124,13 @@ fn extract_iframe(el: &ElementRef, base_url: Option<&Url>) -> Option<EmbeddedMed
         url: src.to_string(),
         absolute_url: resolve_url(src, base_url),
         platform,
-        title: el.value().attr("title").map(|s| s.to_string()),
+        title: el.value().attr("title").map(std::string::ToString::to_string),
         width,
         height,
-        allow: el.value().attr("allow").map(|s| s.to_string()),
-        sandbox: el.value().attr("sandbox").map(|s| s.to_string()),
-        loading: el.value().attr("loading").map(|s| s.to_string()),
-        frameborder: el.value().attr("frameborder").map(|s| s.to_string()),
+        allow: el.value().attr("allow").map(std::string::ToString::to_string),
+        sandbox: el.value().attr("sandbox").map(std::string::ToString::to_string),
+        loading: el.value().attr("loading").map(std::string::ToString::to_string),
+        frameborder: el.value().attr("frameborder").map(std::string::ToString::to_string),
     })
 }
 
@@ -153,7 +152,7 @@ fn extract_object(el: &ElementRef, base_url: Option<&Url>) -> Option<EmbeddedMed
         url: data.to_string(),
         absolute_url: resolve_url(data, base_url),
         platform,
-        title: el.value().attr("title").map(|s| s.to_string()),
+        title: el.value().attr("title").map(std::string::ToString::to_string),
         width: el.value().attr("width").and_then(parse_dimension),
         height: el.value().attr("height").and_then(parse_dimension),
         ..Default::default()
@@ -195,8 +194,8 @@ fn extract_social_embeds(
         for el in document.select(&sel) {
             if let Ok(link_sel) = Selector::parse("a") {
                 for link in el.select(&link_sel) {
-                    if let Some(href) = link.value().attr("href") {
-                        if seen_urls.insert(href.to_string()) {
+                    if let Some(href) = link.value().attr("href")
+                        && seen_urls.insert(href.to_string()) {
                             embeds.push(EmbeddedMedia {
                                 url: href.to_string(),
                                 absolute_url: Some(href.to_string()),
@@ -205,7 +204,6 @@ fn extract_social_embeds(
                             });
                             break;
                         }
-                    }
                 }
             }
         }
@@ -213,8 +211,8 @@ fn extract_social_embeds(
 
     if let Ok(sel) = Selector::parse("blockquote.instagram-media") {
         for el in document.select(&sel) {
-            if let Some(permalink) = el.value().attr("data-instgrm-permalink") {
-                if seen_urls.insert(permalink.to_string()) {
+            if let Some(permalink) = el.value().attr("data-instgrm-permalink")
+                && seen_urls.insert(permalink.to_string()) {
                     embeds.push(EmbeddedMedia {
                         url: permalink.to_string(),
                         absolute_url: Some(permalink.to_string()),
@@ -222,14 +220,13 @@ fn extract_social_embeds(
                         ..Default::default()
                     });
                 }
-            }
         }
     }
 
     if let Ok(sel) = Selector::parse("div.fb-post, div.fb-video") {
         for el in document.select(&sel) {
-            if let Some(href) = el.value().attr("data-href") {
-                if seen_urls.insert(href.to_string()) {
+            if let Some(href) = el.value().attr("data-href")
+                && seen_urls.insert(href.to_string()) {
                     embeds.push(EmbeddedMedia {
                         url: href.to_string(),
                         absolute_url: Some(href.to_string()),
@@ -237,7 +234,6 @@ fn extract_social_embeds(
                         ..Default::default()
                     });
                 }
-            }
         }
     }
 
@@ -245,8 +241,8 @@ fn extract_social_embeds(
         for el in document.select(&sel) {
             if let Ok(link_sel) = Selector::parse("a") {
                 for link in el.select(&link_sel) {
-                    if let Some(href) = link.value().attr("href") {
-                        if href.to_lowercase().contains("reddit.com") && seen_urls.insert(href.to_string()) {
+                    if let Some(href) = link.value().attr("href")
+                        && href.to_lowercase().contains("reddit.com") && seen_urls.insert(href.to_string()) {
                             embeds.push(EmbeddedMedia {
                                 url: href.to_string(),
                                 absolute_url: Some(href.to_string()),
@@ -255,7 +251,6 @@ fn extract_social_embeds(
                             });
                             break;
                         }
-                    }
                 }
             }
         }
@@ -315,7 +310,7 @@ fn resolve_url(href: &str, base_url: Option<&Url>) -> Option<String> {
     }
 
     if href.starts_with("//") {
-        return Some(format!("https:{}", href));
+        return Some(format!("https:{href}"));
     }
 
     base_url.and_then(|base| base.join(href).ok().map(|u| u.to_string()))
@@ -423,7 +418,7 @@ mod tests {
     #[test]
     fn test_has_embeds() {
         let with_embed = r#"<iframe src="https://example.com"></iframe>"#;
-        let without_embed = r#"<div>No embed</div>"#;
+        let without_embed = r"<div>No embed</div>";
 
         assert!(has_embeds(&parse_html(with_embed)));
         assert!(!has_embeds(&parse_html(without_embed)));
@@ -453,7 +448,7 @@ mod tests {
         // 验证 scraper 是否把 noscript 内部的 iframe 解析为 DOM 元素
         let iframe_sel = Selector::parse("iframe[src]").unwrap();
         let dom_count = doc.select(&iframe_sel).count();
-        eprintln!("noscript 内 iframe DOM 元素数量: {}", dom_count);
+        eprintln!("noscript 内 iframe DOM 元素数量: {dom_count}");
 
         // 无论 scraper 如何解析 noscript，都不应提取
         assert!(embeds.is_empty());

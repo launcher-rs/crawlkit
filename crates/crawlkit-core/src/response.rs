@@ -29,8 +29,17 @@ impl Response {
     }
 
     /// 是否为 HTML 内容
+    ///
+    /// 匹配 `text/html`、`application/xhtml+xml`，或 body 以 `<!doctype html` / `<html` 开头。
     pub fn is_html(&self) -> bool {
-        self.content_type()
-            .is_some_and(|ct| ct.to_ascii_lowercase().contains("text/html"))
+        if let Some(ct) = self.content_type() {
+            let ct_lower = ct.to_ascii_lowercase();
+            if ct_lower.contains("text/html") || ct_lower.contains("application/xhtml+xml") {
+                return true;
+            }
+        }
+        let trimmed = self.body.trim_start();
+        let lower = trimmed[..trimmed.len().min(64)].to_ascii_lowercase();
+        lower.starts_with("<!doctype html") || lower.starts_with("<html")
     }
 }

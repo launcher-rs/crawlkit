@@ -40,37 +40,34 @@ pub fn extract_documents(document: &Html, base_url: Option<&Url>) -> Vec<Documen
 
     if let Ok(sel) = Selector::parse("a[href]") {
         for el in document.select(&sel) {
-            if let Some(href) = el.value().attr("href") {
-                if is_document_url(href) {
-                    if let Some(doc) = extract_document_link(&el, base_url) {
+            if let Some(href) = el.value().attr("href")
+                && is_document_url(href)
+                    && let Some(doc) = extract_document_link(&el, base_url) {
                         let key = doc.absolute_url.as_ref().unwrap_or(&doc.url).clone();
                         if seen_urls.insert(key) {
                             documents.push(doc);
                         }
                     }
-                }
-            }
         }
     }
 
     if let Ok(sel) = Selector::parse("a[download]") {
         for el in document.select(&sel) {
-            if el.value().attr("href").is_some() {
-                if let Some(doc) = extract_document_link(&el, base_url) {
+            if el.value().attr("href").is_some()
+                && let Some(doc) = extract_document_link(&el, base_url) {
                     let key = doc.absolute_url.as_ref().unwrap_or(&doc.url).clone();
                     if seen_urls.insert(key) {
                         documents.push(doc);
                     }
                 }
-            }
         }
     }
 
     if let Ok(sel) = Selector::parse("object[data*='.pdf'], embed[src*='.pdf']") {
         for el in document.select(&sel) {
             let src = el.value().attr("data").or_else(|| el.value().attr("src"));
-            if let Some(src) = src {
-                if seen_urls.insert(src.to_string()) {
+            if let Some(src) = src
+                && seen_urls.insert(src.to_string()) {
                     let doc = DocumentMedia {
                         url: src.to_string(),
                         absolute_url: resolve_url(src, base_url),
@@ -80,25 +77,23 @@ pub fn extract_documents(document: &Html, base_url: Option<&Url>) -> Vec<Documen
                     };
                     documents.push(doc);
                 }
-            }
         }
     }
 
     if let Ok(sel) = Selector::parse("iframe[src*='.pdf']") {
         for el in document.select(&sel) {
-            if let Some(src) = el.value().attr("src") {
-                if seen_urls.insert(src.to_string()) {
+            if let Some(src) = el.value().attr("src")
+                && seen_urls.insert(src.to_string()) {
                     let doc = DocumentMedia {
                         url: src.to_string(),
                         absolute_url: resolve_url(src, base_url),
                         doc_type: DocumentType::Pdf,
-                        title: el.value().attr("title").map(|s| s.to_string()),
+                        title: el.value().attr("title").map(std::string::ToString::to_string),
                         mime_type: Some("application/pdf".to_string()),
                         ..Default::default()
                     };
                     documents.push(doc);
                 }
-            }
         }
     }
 
@@ -113,7 +108,7 @@ fn extract_document_link(el: &ElementRef, base_url: Option<&Url>) -> Option<Docu
     let filename = extract_filename(href);
 
     let title = el.value().attr("title")
-        .map(|s| s.to_string())
+        .map(std::string::ToString::to_string)
         .or_else(|| {
             let text = el.text().collect::<String>().trim().to_string();
             if !text.is_empty() { Some(text) } else { None }
@@ -138,9 +133,9 @@ fn extract_document_link(el: &ElementRef, base_url: Option<&Url>) -> Option<Docu
 fn is_document_url(url: &str) -> bool {
     let u = url.to_lowercase();
     DOCUMENT_EXTENSIONS.iter().any(|(ext, _)| {
-        u.ends_with(&format!(".{}", ext)) ||
-        u.contains(&format!(".{}?", ext)) ||
-        u.contains(&format!(".{}&", ext))
+        u.ends_with(&format!(".{ext}")) ||
+        u.contains(&format!(".{ext}?")) ||
+        u.contains(&format!(".{ext}&"))
     })
 }
 
@@ -149,7 +144,7 @@ fn detect_document_type(url: &str) -> DocumentType {
     let u = url.to_lowercase();
 
     for (ext, doc_type) in DOCUMENT_EXTENSIONS {
-        if u.contains(&format!(".{}", ext)) {
+        if u.contains(&format!(".{ext}")) {
             return *doc_type;
         }
     }
@@ -190,7 +185,7 @@ fn resolve_url(href: &str, base_url: Option<&Url>) -> Option<String> {
     }
 
     if href.starts_with("//") {
-        return Some(format!("https:{}", href));
+        return Some(format!("https:{href}"));
     }
 
     base_url.and_then(|base| base.join(href).ok().map(|u| u.to_string()))
@@ -222,8 +217,7 @@ pub fn has_documents(document: &Html) -> bool {
         document.select(&sel)
             .any(|el| {
                 el.value().attr("href")
-                    .map(is_document_url)
-                    .unwrap_or(false)
+                    .is_some_and(is_document_url)
             })
     } else {
         false

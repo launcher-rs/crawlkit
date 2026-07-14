@@ -316,6 +316,16 @@ pub fn extract_attributes(raw_html: &str, selector: &str, attr: &str) -> Result<
     Ok(values)
 }
 
+/// 将 HTML 中未自闭合的 void 元素转为自闭合格式
+///
+/// skyscraper 的 HTML 解析器是 XML 严格模式，遇到 `<meta>` 会报错。
+/// 此函数用 scraper（html5ever，宽容解析）先解析再序列化，
+/// 得到格式良好的 HTML，使 skyscraper 能正确解析。
+pub fn sanitize_for_xpath(html: &str) -> String {
+    let doc = Html::parse_document(html);
+    doc.html()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -407,19 +417,9 @@ mod tests {
 
     #[test]
     fn test_sanitize_for_xpath_non_void_unchanged() {
-        let html = r#"<div><p>Hello</p></div>"#;
+        let html = r"<div><p>Hello</p></div>";
         let sanitized = sanitize_for_xpath(html);
         assert!(sanitized.contains("<div>"));
         assert!(sanitized.contains("<p>"));
     }
-}
-
-/// 将 HTML 中未自闭合的 void 元素转为自闭合格式
-///
-/// skyscraper 的 HTML 解析器是 XML 严格模式，遇到 `<meta>` 会报错。
-/// 此函数用 scraper（html5ever，宽容解析）先解析再序列化，
-/// 得到格式良好的 HTML，使 skyscraper 能正确解析。
-pub fn sanitize_for_xpath(html: &str) -> String {
-    let doc = Html::parse_document(html);
-    doc.html()
 }

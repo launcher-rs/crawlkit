@@ -398,10 +398,7 @@ fn count_text_nodes(document: &Html) -> usize {
 fn count_text_nodes_recursive(element: &scraper::ElementRef) -> usize {
     let mut count = 0;
     for child in element.children() {
-        match child.value() {
-            scraper::Node::Text(_) => count += 1,
-            _ => {}
-        }
+        if let scraper::Node::Text(_) = child.value() { count += 1 }
         if let Some(child_ref) = scraper::ElementRef::wrap(child) {
             count += count_text_nodes_recursive(&child_ref);
         }
@@ -436,7 +433,7 @@ mod tests {
     use super::*;
 
     /// 包含各类 HTML 结构的示例页面，用于集成测试。
-    const SAMPLE_HTML: &str = r##"
+    const SAMPLE_HTML: &str = r#"
 <!DOCTYPE html>
 <html lang="zh-CN">
 <head>
@@ -497,7 +494,7 @@ mod tests {
     </script>
 </body>
 </html>
-"##;
+"#;
 
     // ── 构造方法 ──
 
@@ -869,7 +866,7 @@ mod tests {
     #[test]
     fn 解析极大段落不崩溃() {
         let long_text = "A ".repeat(10_000);
-        let html = format!("<html><body><p>{}</p></body></html>", long_text);
+        let html = format!("<html><body><p>{long_text}</p></body></html>");
         let parser = HtmlParser::new();
         let result = parser.parse(&html).unwrap();
         assert!(result.text.word_count > 0);

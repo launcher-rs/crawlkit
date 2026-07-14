@@ -168,7 +168,7 @@ lazy_static! {
 /// 仅用于预编译已知合法的选择器。
 fn sel(css: &str) -> Selector {
     Selector::parse(css).unwrap_or_else(|e| {
-        panic!("无效的 CSS 选择器 '{}': {}", css, e)
+        panic!("无效的 CSS 选择器 '{css}': {e}")
     })
 }
 
@@ -179,7 +179,7 @@ fn sel(css: &str) -> Selector {
 pub fn get_or_create_selector(css: &str) -> ParserResult<Selector> {
     {
         let cache = SELECTOR_CACHE.read().map_err(|e| {
-            ParserError::ConfigError(format!("选择器缓存读取锁失效: {}", e))
+            ParserError::ConfigError(format!("选择器缓存读取锁失效: {e}"))
         })?;
         if let Some(sel) = cache.get(css) {
             return Ok(sel.clone());
@@ -187,11 +187,11 @@ pub fn get_or_create_selector(css: &str) -> ParserResult<Selector> {
     }
 
     let selector = Selector::parse(css).map_err(|e| {
-        ParserError::SelectorError(format!("无法解析选择器 '{}': {}", css, e))
+        ParserError::SelectorError(format!("无法解析选择器 '{css}': {e}"))
     })?;
 
     let mut cache = SELECTOR_CACHE.write().map_err(|e| {
-        ParserError::ConfigError(format!("选择器缓存写入锁失效: {}", e))
+        ParserError::ConfigError(format!("选择器缓存写入锁失效: {e}"))
     })?;
     cache.insert(css.to_string(), selector.clone());
     Ok(selector)
@@ -203,7 +203,7 @@ pub fn get_or_create_selector(css: &str) -> ParserResult<Selector> {
 /// 适用于脚本阶段就知道合法的选择器。
 pub fn parse_selector(css: &str) -> Selector {
     Selector::parse(css).unwrap_or_else(|e| {
-        panic!("无效的 CSS 选择器 '{}': {}", css, e)
+        panic!("无效的 CSS 选择器 '{css}': {e}")
     })
 }
 
@@ -298,47 +298,47 @@ pub const BLOCK_ELEMENTS: &[&str] = &[
 ///
 /// 匹配所有包含指定属性的元素，无论属性值是什么。
 pub fn attr_selector(attr: &str) -> String {
-    format!("[{}]", attr)
+    format!("[{attr}]")
 }
 
 /// 构建属性包含选择器：`[attr*=value]`
 ///
 /// 匹配属性值中包含指定子串的元素。
 pub fn attr_contains_selector(attr: &str, value: &str) -> String {
-    format!(r#"[{}*="{}"]"#, attr, value)
+    format!(r#"[{attr}*="{value}"]"#)
 }
 
 /// 构建属性前缀选择器：`[attr^=value]`
 ///
 /// 匹配属性值以指定字符串开头的元素。
 pub fn attr_starts_with_selector(attr: &str, value: &str) -> String {
-    format!(r#"[{}^="{}"]"#, attr, value)
+    format!(r#"[{attr}^="{value}"]"#)
 }
 
 /// 构建 class 选择器：`.class`
 ///
 /// 匹配所有包含指定 class 的元素。
 pub fn class_selector(class: &str) -> String {
-    format!(".{}", class)
+    format!(".{class}")
 }
 
 /// 构建 ID 选择器：`#id`
 pub fn id_selector(id: &str) -> String {
-    format!("#{}", id)
+    format!("#{id}")
 }
 
 /// 构建后代选择器：`ancestor descendant`
 ///
 /// 匹配 ancestor 元素下的所有 descendant 元素。
 pub fn descendant_selector(ancestor: &str, descendant: &str) -> String {
-    format!("{} {}", ancestor, descendant)
+    format!("{ancestor} {descendant}")
 }
 
 /// 构建子选择器：`parent > child`
 ///
 /// 仅匹配 parent 的直接子元素 child。
 pub fn child_selector(parent: &str, child: &str) -> String {
-    format!("{} > {}", parent, child)
+    format!("{parent} > {child}")
 }
 
 /// 构建多重选择器：`sel1, sel2, sel3, ...`
@@ -354,21 +354,21 @@ pub fn multi_selector(selectors: &[&str]) -> String {
 ///
 /// 用于匹配特定 name 属性的 `<meta>` 标签。
 pub fn meta_name_selector(name: &str) -> String {
-    format!(r#"meta[name="{}"]"#, name)
+    format!(r#"meta[name="{name}"]"#)
 }
 
 /// 构建 `meta[property="..."]` 选择器
 ///
 /// 用于匹配特定 property 属性的 `<meta>` 标签（Open Graph 等）。
 pub fn meta_property_selector(property: &str) -> String {
-    format!(r#"meta[property="{}"]"#, property)
+    format!(r#"meta[property="{property}"]"#)
 }
 
 /// 构建 `link[rel="..."]` 选择器
 ///
 /// 用于匹配特定 rel 属性的 `<link>` 标签。
 pub fn link_rel_selector(rel: &str) -> String {
-    format!(r#"link[rel="{}"]"#, rel)
+    format!(r#"link[rel="{rel}"]"#)
 }
 
 #[cfg(test)]
@@ -527,14 +527,14 @@ mod tests {
 
     #[test]
     fn test_heading_selector_matches_all_levels() {
-        let html = r#"
+        let html = r"
             <h1>一级</h1>
             <h2>二级</h2>
             <h3>三级</h3>
             <h4>四级</h4>
             <h5>五级</h5>
             <h6>六级</h6>
-        "#;
+        ";
         assert_eq!(count_matches(html, heading_selector()), 6);
     }
 
@@ -561,8 +561,7 @@ mod tests {
         for elem in INLINE_ELEMENTS {
             assert!(
                 !BLOCK_ELEMENTS.contains(elem),
-                "元素 {} 同时出现在 INLINE 和 BLOCK 中",
-                elem
+                "元素 {elem} 同时出现在 INLINE 和 BLOCK 中"
             );
         }
         assert!(INLINE_ELEMENTS.contains(&"span"));

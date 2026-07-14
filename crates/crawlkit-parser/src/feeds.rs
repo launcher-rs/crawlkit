@@ -233,7 +233,7 @@ pub fn resolve_url(href: &str, base_url: Option<&Url>) -> Option<String> {
     }
 
     if href.starts_with("//") {
-        let scheme = base_url.map(|u| u.scheme()).unwrap_or("https");
+        let scheme = base_url.map_or("https", url::Url::scheme);
         return Some(format!("{scheme}:{href}"));
     }
 
@@ -596,7 +596,7 @@ mod tests {
 
     #[test]
     fn 未知内容返回_unknown() {
-        let content = r#"<html><body>普通页面</body></html>"#;
+        let content = r"<html><body>普通页面</body></html>";
         assert_eq!(detect_feed_type(content), FeedType::Unknown);
     }
 
@@ -765,7 +765,7 @@ mod tests {
 
     #[test]
     fn 无_feed_时返回空列表() {
-        let html = r#"<html><head><title>普通页面</title></head></html>"#;
+        let html = r"<html><head><title>普通页面</title></head></html>";
         let doc = parse_html(html);
         let feeds = extract_link_feeds(&doc, None);
         assert!(feeds.is_empty());
@@ -921,7 +921,7 @@ mod tests {
         let doc = parse_html(html_with);
         assert!(has_feeds(&doc, None));
 
-        let html_without = r#"<html><head><title>无 Feed</title></head></html>"#;
+        let html_without = r"<html><head><title>无 Feed</title></head></html>";
         let doc = parse_html(html_without);
         assert!(!has_feeds(&doc, None));
     }
@@ -940,7 +940,7 @@ mod tests {
 
     #[test]
     fn 无_feed_时_get_rss_feed_返回_none() {
-        let html = r#"<html><head><title>无 Feed</title></head></html>"#;
+        let html = r"<html><head><title>无 Feed</title></head></html>";
         let doc = parse_html(html);
         assert!(get_rss_feed(&doc, None).is_none());
     }

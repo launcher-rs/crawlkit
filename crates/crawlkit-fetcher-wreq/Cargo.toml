@@ -7,7 +7,7 @@ repository.workspace = true
 license.workspace = true
 
 [dependencies]
-crawlkit-core = { path = "../crawlkit-core",version = "0.2.1" }
+crawlkit-core = { path = "../crawlkit-core", version = "0.3.0" }
 async-trait = "0.1"
 wreq = { version = "=6.0.0-rc.29", features = ["json", "gzip", "brotli", "deflate", "zstd", "cookies"] }
 wreq-util = { version = "=3.0.0-rc.13", features = ["emulation"] }

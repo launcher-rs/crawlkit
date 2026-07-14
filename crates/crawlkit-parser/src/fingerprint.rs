@@ -205,22 +205,20 @@ pub fn extract_main_content(document: &Html) -> String {
     let content_selectors = ["article", "main", "[role=main]", ".content", ".post-content"];
 
     for sel_str in &content_selectors {
-        if let Ok(sel) = Selector::parse(sel_str) {
-            if let Some(el) = document.select(&sel).next() {
+        if let Ok(sel) = Selector::parse(sel_str)
+            && let Some(el) = document.select(&sel).next() {
                 let text = collect_text_recursive(el);
                 if text.len() > 50 {
                     return text;
                 }
             }
-        }
     }
 
     // 回退到 body
-    if let Ok(body_sel) = Selector::parse("body") {
-        if let Some(body) = document.select(&body_sel).next() {
+    if let Ok(body_sel) = Selector::parse("body")
+        && let Some(body) = document.select(&body_sel).next() {
             return collect_text_recursive(body);
         }
-    }
 
     // 最后回退到根元素
     collect_text_recursive(document.root_element())
@@ -242,11 +240,11 @@ pub fn extract_structure(document: &Html) -> u64 {
 /// 递归提取元素的 DOM 结构
 fn extract_structure_recursive(element: &ElementRef, output: &mut String, depth: usize) {
     let tag_name = element.value().name.local.as_ref();
-    output.push_str(&format!("<{}", tag_name));
+    output.push_str(&format!("<{tag_name}"));
 
     // 只保留 id 和少量关键属性以保持结构泛化能力
     if let Some(id) = element.value().attr("id") {
-        output.push_str(&format!("#{}", id));
+        output.push_str(&format!("#{id}"));
     }
 
     let tag = tag_name.to_lowercase();
@@ -264,7 +262,7 @@ fn extract_structure_recursive(element: &ElementRef, output: &mut String, depth:
         output.push_str("[img]");
     }
 
-    output.push_str(&format!(":{}", depth));
+    output.push_str(&format!(":{depth}"));
 
     for child in element.children() {
         if let Some(child_el) = ElementRef::wrap(child) {
@@ -341,8 +339,8 @@ pub fn extract_amp_info(document: &Html) -> AmpInfo {
 ///
 /// 通过检查 `<html>` 标签是否包含 `amp` 或 `⚡` 属性来判断。
 pub fn detect_is_amp_page(document: &Html) -> bool {
-    if let Ok(html_sel) = Selector::parse("html") {
-        if let Some(html_el) = document.select(&html_sel).next() {
+    if let Ok(html_sel) = Selector::parse("html")
+        && let Some(html_el) = document.select(&html_sel).next() {
             let el = html_el.value();
             if el.attr("amp").is_some() || el.has_class("amp", scraper::CaseSensitivity::CaseSensitive)
             {
@@ -353,29 +351,27 @@ pub fn detect_is_amp_page(document: &Html) -> bool {
                 return true;
             }
         }
-    }
     false
 }
 
 /// 提取 AMP 版本的链接（`<link rel="amphtml">`）
 pub fn extract_amp_link(document: &Html) -> Option<String> {
     let sel_str = "link[rel=amphtml]";
-    if let Ok(sel) = Selector::parse(sel_str) {
-        if let Some(el) = document.select(&sel).next() {
-            return el.value().attr("href").map(|s| s.to_string());
+    if let Ok(sel) = Selector::parse(sel_str)
+        && let Some(el) = document.select(&sel).next() {
+            return el.value().attr("href").map(std::string::ToString::to_string);
         }
-    }
     None
 }
 
 /// 提取 canonical 链接（`<link rel="canonical">`）
 pub fn extract_canonical_link(document: &Html) -> Option<String> {
     if let Some(el) = document.select(&SELECTORS.link).find(|e| {
-        e.value().attr("rel").map_or(false, |r| {
+        e.value().attr("rel").is_some_and(|r| {
             r.to_lowercase() == "canonical"
         })
     }) {
-        return el.value().attr("href").map(|s| s.to_string());
+        return el.value().attr("href").map(std::string::ToString::to_string);
     }
     None
 }
@@ -383,15 +379,14 @@ pub fn extract_canonical_link(document: &Html) -> Option<String> {
 /// 检测页面是否加载了 AMP 运行时
 pub fn detect_amp_runtime(document: &Html) -> bool {
     let sel_str = "script[src*=ampproject]";
-    if let Ok(sel) = Selector::parse(sel_str) {
-        if document.select(&sel).any(|el| {
-            el.value().attr("src").map_or(false, |src| {
+    if let Ok(sel) = Selector::parse(sel_str)
+        && document.select(&sel).any(|el| {
+            el.value().attr("src").is_some_and(|src| {
                 src.contains("cdn.ampproject.org")
             })
         }) {
             return true;
         }
-    }
     false
 }
 
@@ -404,12 +399,11 @@ pub fn extract_amp_components(document: &Html) -> Vec<String> {
         for el in document.select(&sel) {
             let name = el.value().attr("custom-element")
                 .or_else(|| el.value().attr("custom-template"))
-                .map(|s| s.to_string());
-            if let Some(n) = name {
-                if !components.contains(&n) {
+                .map(std::string::ToString::to_string);
+            if let Some(n) = name
+                && !components.contains(&n) {
                     components.push(n);
                 }
-            }
         }
     }
 
@@ -470,7 +464,7 @@ pub fn extract_cache_hints(document: &Html) -> CacheHints {
     if let Ok(sel) = Selector::parse("meta[http-equiv]") {
         for el in document.select(&sel) {
             let equiv = el.value().attr("http-equiv")
-                .map(|s| s.to_lowercase());
+                .map(str::to_lowercase);
             let content = el.value().attr("content");
 
             match (equiv.as_deref(), content) {
@@ -756,13 +750,13 @@ mod tests {
 
     #[test]
     fn test_extract_main_content_finds_article() {
-        let html = r#"
+        let html = r"
             <html><body>
                 <nav>Nav content</nav>
                 <article><p>This is the main article content with enough text to exceed the minimum threshold of fifty characters so that it gets selected</p></article>
                 <footer>Footer</footer>
             </body></html>
-        "#;
+        ";
         let doc = create_doc(html);
         let content = extract_main_content(&doc);
         assert!(content.contains("main article content"));
@@ -806,7 +800,7 @@ mod tests {
 
     #[test]
     fn test_detect_amp_page_with_amp_attribute() {
-        let html = r#"<html amp><head><title>AMP Page</title></head><body>Hello</body></html>"#;
+        let html = r"<html amp><head><title>AMP Page</title></head><body>Hello</body></html>";
         let doc = create_doc(html);
         assert!(detect_is_amp_page(&doc));
     }
@@ -911,7 +905,7 @@ mod tests {
 
     #[test]
     fn test_amp_info_no_amp_version() {
-        let html = r#"<html><head><title>Normal</title></head><body>No AMP</body></html>"#;
+        let html = r"<html><head><title>Normal</title></head><body>No AMP</body></html>";
         let doc = create_doc(html);
         let info = extract_amp_info(&doc);
         assert!(!info.is_amp);
@@ -920,7 +914,7 @@ mod tests {
 
     #[test]
     fn test_is_amp_page_convenience() {
-        let amp_html = r#"<html amp><head><title>A</title></head><body>B</body></html>"#;
+        let amp_html = r"<html amp><head><title>A</title></head><body>B</body></html>";
         assert!(is_amp_page(amp_html));
         let normal_html = "<html><head><title>A</title></head><body>B</body></html>";
         assert!(!is_amp_page(normal_html));
@@ -1104,13 +1098,13 @@ mod tests {
 
     #[test]
     fn test_document_with_script_style_excluded() {
-        let html = r#"
+        let html = r"
             <html><body>
                 <p>Visible text</p>
                 <script>var x = 1;</script>
                 <style>.hidden {}</style>
             </body></html>
-        "#;
+        ";
         let doc = create_doc(html);
         let text = extract_text_only(&doc);
         assert!(text.contains("Visible text"));
@@ -1130,7 +1124,7 @@ mod tests {
 
     #[test]
     fn test_nested_element_count() {
-        let html = r#"
+        let html = r"
             <html><body>
                 <div>
                     <ul>
@@ -1140,7 +1134,7 @@ mod tests {
                     </ul>
                 </div>
             </body></html>
-        "#;
+        ";
         let doc = create_doc(html);
         let count = count_elements(&doc);
         assert_eq!(count, 8);

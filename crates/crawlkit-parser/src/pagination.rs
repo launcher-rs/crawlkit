@@ -243,32 +243,28 @@ lazy_static::lazy_static! {
 /// ```
 pub fn extract_page_number_from_url(url: &str) -> Option<u32> {
     // 优先从查询参数匹配
-    if let Some(caps) = PAGE_IN_QUERY.captures(url) {
-        if let Ok(n) = caps[1].parse::<u32>() {
+    if let Some(caps) = PAGE_IN_QUERY.captures(url)
+        && let Ok(n) = caps[1].parse::<u32>() {
             return Some(n);
         }
-    }
 
     // 尝试路径格式 /page/N
-    if let Some(caps) = PAGE_IN_PATH.captures(url) {
-        if let Ok(n) = caps[1].parse::<u32>() {
+    if let Some(caps) = PAGE_IN_PATH.captures(url)
+        && let Ok(n) = caps[1].parse::<u32>() {
             return Some(n);
         }
-    }
 
     // 尝试通用 page/p/pg 模式
-    if let Some(caps) = PAGE_IN_URL.captures(url) {
-        if let Ok(n) = caps[1].parse::<u32>() {
+    if let Some(caps) = PAGE_IN_URL.captures(url)
+        && let Ok(n) = caps[1].parse::<u32>() {
             return Some(n);
         }
-    }
 
     // 尝试末尾数字路径
-    if let Some(caps) = NUMERIC_PATH.captures(url) {
-        if let Ok(n) = caps[1].parse::<u32>() {
+    if let Some(caps) = NUMERIC_PATH.captures(url)
+        && let Ok(n) = caps[1].parse::<u32>() {
             return Some(n);
         }
-    }
 
     None
 }
@@ -320,7 +316,7 @@ pub fn resolve_url(href: &str, base_url: Option<&Url>) -> Option<String> {
 
     // 协议相对 URL
     if href.starts_with("//") {
-        let scheme = base_url.map(|u| u.scheme()).unwrap_or("https");
+        let scheme = base_url.map_or("https", url::Url::scheme);
         return Some(format!("{scheme}:{href}"));
     }
 
@@ -417,8 +413,7 @@ pub fn extract_page_links(document: &Html, base_url: Option<&Url>) -> Vec<PageUr
 
             // 判断是否为当前页
             let is_current = element.value().attr("class")
-                .map(|c| c.contains("current") || c.contains("active"))
-                .unwrap_or(false);
+                .is_some_and(|c| c.contains("current") || c.contains("active"));
 
             // 尝试从链接文本提取页码
             let text: String = element.text().collect::<Vec<_>>().join(" ").trim().to_string();
@@ -465,11 +460,10 @@ pub fn detect_infinite_scroll(document: &Html) -> bool {
     ];
 
     for selector_str in &attr_selectors {
-        if let Ok(selector) = Selector::parse(selector_str) {
-            if document.select(&selector).next().is_some() {
+        if let Ok(selector) = Selector::parse(selector_str)
+            && document.select(&selector).next().is_some() {
                 return true;
             }
-        }
     }
 
     // 检查 `<script>` 内容
@@ -670,16 +664,13 @@ pub fn extract_pagination(
     }
 
     // 8. 从 URL 查询参数推断总页数（如果有 total 参数）
-    if let Some(ref base) = base_url {
-        if let Some(total_str) = base.query_pairs()
+    if let Some(base) = base_url
+        && let Some(total_str) = base.query_pairs()
             .find(|(k, _)| k == "total" || k == "pages")
             .map(|(_, v)| v.to_string())
-        {
-            if let Ok(total) = total_str.parse::<u32>() {
+            && let Ok(total) = total_str.parse::<u32>() {
                 pagination.total_pages = Some(total);
             }
-        }
-    }
 
     pagination
 }
@@ -721,8 +712,7 @@ pub fn has_pagination(document: &Html, _html_content: &str) -> bool {
     let any_pagination = pagination_classes.iter().any(|cls| {
         Selector::parse(cls)
             .ok()
-            .map(|sel| document.select(&sel).next().is_some())
-            .unwrap_or(false)
+            .is_some_and(|sel| document.select(&sel).next().is_some())
     });
     if any_pagination {
         return true;
@@ -784,22 +774,20 @@ pub fn get_next_page(document: &Html, base_url: Option<&Url>) -> Option<String> 
         };
         for element in document.select(&selector) {
             let text: String = element.text().collect();
-            if NEXT_TEXT.is_match(&text) {
-                if let Some(href) = element.value().attr("href") {
+            if NEXT_TEXT.is_match(&text)
+                && let Some(href) = element.value().attr("href") {
                     return resolve_url(href, base_url);
                 }
-            }
         }
     }
 
     // 从分页链接中找出比当前页大 1 的链接
     let page_urls = extract_page_links(document, base_url);
     let current = page_urls.iter().find(|p| p.is_current).map(|p| p.page_number);
-    if let Some(cur) = current {
-        if let Some(next) = page_urls.iter().find(|p| p.page_number == cur + 1) {
+    if let Some(cur) = current
+        && let Some(next) = page_urls.iter().find(|p| p.page_number == cur + 1) {
             return Some(next.url.clone());
         }
-    }
 
     None
 }
@@ -839,24 +827,21 @@ pub fn get_prev_page(document: &Html, base_url: Option<&Url>) -> Option<String> 
         };
         for element in document.select(&selector) {
             let text: String = element.text().collect();
-            if PREV_TEXT.is_match(&text) {
-                if let Some(href) = element.value().attr("href") {
+            if PREV_TEXT.is_match(&text)
+                && let Some(href) = element.value().attr("href") {
                     return resolve_url(href, base_url);
                 }
-            }
         }
     }
 
     // 从分页链接中找出比当前页小 1 的链接
     let page_urls = extract_page_links(document, base_url);
     let current = page_urls.iter().find(|p| p.is_current).map(|p| p.page_number);
-    if let Some(cur) = current {
-        if cur > 1 {
-            if let Some(prev) = page_urls.iter().find(|p| p.page_number == cur - 1) {
+    if let Some(cur) = current
+        && cur > 1
+            && let Some(prev) = page_urls.iter().find(|p| p.page_number == cur - 1) {
                 return Some(prev.url.clone());
             }
-        }
-    }
 
     None
 }
@@ -880,7 +865,7 @@ pub fn generate_page_url(base_url: &Url, page_num: u32) -> Option<String> {
         let result = PAGE_IN_QUERY.replace(base_url.as_str(), |caps: &regex::Captures| {
             // 保留前缀（? 或 &）和参数名，只替换值
             let prefix = &caps[0][..caps[0].len() - caps[1].len()];
-            format!("{}{}", prefix, page_num)
+            format!("{prefix}{page_num}")
         });
         return Some(result.to_string());
     }
@@ -889,7 +874,7 @@ pub fn generate_page_url(base_url: &Url, page_num: u32) -> Option<String> {
     if PAGE_IN_PATH.is_match(base_url.as_str()) {
         let result = PAGE_IN_PATH.replace(base_url.as_str(), |caps: &regex::Captures| {
             let prefix = &caps[0][..caps[0].len() - caps[1].len()];
-            format!("{}{}", prefix, page_num)
+            format!("{prefix}{page_num}")
         });
         return Some(result.to_string());
     }
@@ -906,7 +891,7 @@ pub fn generate_page_url(base_url: &Url, page_num: u32) -> Option<String> {
 
 /// 从 `<link rel="...">` 标签中提取指定 rel 值的 href 属性。
 fn extract_rel_link(document: &Html, rel_value: &str, base_url: Option<&Url>) -> Option<String> {
-    let selector_str = format!("link[rel=\"{}\"][href]", rel_value);
+    let selector_str = format!("link[rel=\"{rel_value}\"][href]");
     let selector = Selector::parse(&selector_str).ok()?;
     let element = document.select(&selector).next()?;
     let href = element.value().attr("href")?;
@@ -1153,14 +1138,14 @@ mod tests {
 
     #[test]
     fn test_detect_infinite_scroll_by_script() {
-        let html = r#"<html><body><script>var infiniteScroll = true;</script></body></html>"#;
+        let html = r"<html><body><script>var infiniteScroll = true;</script></body></html>";
         let document = Html::parse_document(html);
         assert!(detect_infinite_scroll(&document));
     }
 
     #[test]
     fn test_detect_infinite_scroll_none() {
-        let html = r#"<html><body><p>No scroll here</p></body></html>"#;
+        let html = r"<html><body><p>No scroll here</p></body></html>";
         let document = Html::parse_document(html);
         assert!(!detect_infinite_scroll(&document));
     }
@@ -1192,7 +1177,7 @@ mod tests {
 
     #[test]
     fn test_detect_load_more_none() {
-        let html = r#"<html><body><button>提交</button></body></html>"#;
+        let html = r"<html><body><button>提交</button></body></html>";
         let document = Html::parse_document(html);
         assert!(!detect_load_more(&document));
     }
@@ -1232,7 +1217,7 @@ mod tests {
     #[test]
     fn test_determine_pagination_type_next_prev_from_text() {
         let urls = vec![];
-        let html = r#"<html><body><a>上一页</a><a>下一页</a></body></html>"#;
+        let html = r"<html><body><a>上一页</a><a>下一页</a></body></html>";
         let document = Html::parse_document(html);
         let ptype = determine_pagination_type(&urls, false, false, &document);
         assert_eq!(ptype, PaginationType::NextPrev);

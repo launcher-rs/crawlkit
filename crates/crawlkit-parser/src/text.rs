@@ -40,7 +40,7 @@ pub fn extract_text(document: &Html, config: &ParserConfig) -> ParserResult<Text
 
 /// 使用内容选择器提取正文，失败时回退到 body 文本提取
 fn extract_main_content(document: &Html, config: &ParserConfig) -> String {
-    for selector_str in CONTENT_SELECTORS.iter() {
+    for selector_str in CONTENT_SELECTORS {
         if let Some(sel) = try_parse_selector(selector_str)
             && let Some(el) = document.select(&sel).next()
         {
@@ -50,7 +50,7 @@ fn extract_main_content(document: &Html, config: &ParserConfig) -> String {
             }
         }
     }
-    for selector_str in config.content_selectors.iter() {
+    for selector_str in &config.content_selectors {
         if let Some(sel) = try_parse_selector(selector_str)
             && let Some(el) = document.select(&sel).next()
         {
@@ -93,19 +93,17 @@ pub fn extract_element_text(element: ElementRef) -> String {
             }
             Node::Element(el) => {
                 let tag = el.name.local.as_ref();
-                if is_block_element(tag) {
-                    if !result.is_empty() && !result.ends_with('\n') {
+                if is_block_element(tag)
+                    && !result.is_empty() && !result.ends_with('\n') {
                         result.push('\n');
                     }
-                }
                 if let Some(child_ref) = ElementRef::wrap(child) {
                     result.push_str(&extract_element_text(child_ref));
                 }
-                if is_block_element(tag) {
-                    if !result.ends_with('\n') {
+                if is_block_element(tag)
+                    && !result.ends_with('\n') {
                         result.push('\n');
                     }
-                }
             }
             _ => {}
         }
@@ -135,11 +133,10 @@ fn extract_element_text_filtered(
                 if skip_tags.contains(tag) {
                     continue;
                 }
-                if is_block_element(tag) {
-                    if !result.is_empty() && !result.ends_with('\n') {
+                if is_block_element(tag)
+                    && !result.is_empty() && !result.ends_with('\n') {
                         result.push('\n');
                     }
-                }
                 if let Some(child_ref) = ElementRef::wrap(child) {
                     result.push_str(&extract_element_text_filtered(child_ref, skip_tags));
                 }
@@ -324,7 +321,7 @@ pub fn flesch_kincaid_grade(text: &str) -> f64 {
 /// 统计单词数
 pub fn count_words(text: &str) -> usize {
     text.split_whitespace()
-        .filter(|w| w.chars().any(|c| c.is_alphabetic()))
+        .filter(|w| w.chars().any(char::is_alphabetic))
         .count()
 }
 
@@ -370,11 +367,10 @@ fn count_word_syllables(word: &str) -> usize {
     if w.ends_with("le") && chars.len() > 2 && !vowels.contains(&chars[chars.len() - 3]) {
         count += 1;
     }
-    if w.ends_with("es") || w.ends_with("ed") {
-        if count > 1 {
+    if (w.ends_with("es") || w.ends_with("ed"))
+        && count > 1 {
             count -= 1;
         }
-    }
     count.max(1)
 }
 
@@ -503,13 +499,13 @@ mod tests {
 
     #[test]
     fn 提取文章内容() {
-        let html = r#"<html><body>
+        let html = r"<html><body>
             <article>
                 <h1>Title</h1>
                 <p>This is the article content that should be long enough to pass the threshold.</p>
                 <p>More content here for testing purposes.</p>
             </article>
-        </body></html>"#;
+        </body></html>";
         let doc = create_document(html);
         let config = default_config();
         let result = extract_text(&doc, &config).unwrap();
@@ -612,7 +608,7 @@ mod tests {
     fn 可读性分数范围() {
         let text = "The cat sat on the mat. The dog ran in the park. The bird flew up high.";
         let score = flesch_reading_ease(text);
-        assert!(score >= 0.0 && score <= 100.0);
+        assert!((0.0..=100.0).contains(&score));
     }
 
     #[test]
@@ -682,10 +678,10 @@ mod tests {
 
     #[test]
     fn 提取文本过滤导航() {
-        let html = r#"<html><body>
+        let html = r"<html><body>
             <nav><p>Navigation</p></nav>
             <main><p>Main content here.</p></main>
-        </body></html>"#;
+        </body></html>";
         let doc = create_document(html);
         let main_sel = try_parse_selector("main").unwrap();
         let main = doc.select(&main_sel).next().unwrap();

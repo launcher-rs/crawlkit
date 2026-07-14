@@ -161,7 +161,7 @@ impl MediaExtractor {
 
     /// 按类型获取媒体 URL
     pub fn get_urls_by_type(&self, html: &str, media_type: MediaType) -> Vec<String> {
-        let base = self.base_url.as_ref().map(|u| u.as_str());
+        let base = self.base_url.as_ref().map(url::Url::as_str);
         match media_type {
             MediaType::Image => images::get_image_urls(html, base),
             MediaType::Video => videos::get_video_urls(html, base),

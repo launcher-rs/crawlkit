@@ -51,11 +51,10 @@ pub fn extract_links(document: &Html, config: &ParserConfig) -> ParserResult<Vec
     let mut seen = HashSet::new();
 
     for element in document.select(selector) {
-        if let Some(link) = extract_link(&element, config.base_url.as_ref()) {
-            if seen.insert(link.href.clone()) {
+        if let Some(link) = extract_link(&element, config.base_url.as_ref())
+            && seen.insert(link.href.clone()) {
                 links.push(link);
             }
-        }
     }
 
     Ok(links)
@@ -124,7 +123,7 @@ pub fn resolve_url(href: &str, base_url: Option<&Url>) -> Option<String> {
 
     // 协议相对 URL：//example.com/path
     if href.starts_with("//") {
-        let scheme = base_url.map(|u| u.scheme()).unwrap_or("https");
+        let scheme = base_url.map_or("https", url::Url::scheme);
         return Some(format!("{scheme}:{href}"));
     }
 
@@ -276,13 +275,11 @@ pub fn get_external_domains(links: &[Link]) -> Vec<String> {
         if link.link_type != LinkType::External {
             continue;
         }
-        if let Some(ref url_str) = link.url {
-            if let Ok(parsed) = Url::parse(url_str) {
-                if let Some(host) = parsed.host_str() {
+        if let Some(ref url_str) = link.url
+            && let Ok(parsed) = Url::parse(url_str)
+                && let Some(host) = parsed.host_str() {
                     domains.insert(host.to_string());
                 }
-            }
-        }
     }
 
     let mut result: Vec<_> = domains.into_iter().collect();
@@ -328,7 +325,7 @@ pub fn calculate_link_stats(links: &[Link]) -> LinkStats {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::selector::SELECTORS;
+    
     use scraper::Selector;
 
     // 辅助：构造测试用的 ParserConfig
@@ -399,7 +396,7 @@ mod tests {
 
     #[test]
     fn test_extract_link_returns_none_for_element_without_href() {
-        let html = Html::parse_document(r#"<html><body><span>不是链接</span></body></html>"#);
+        let html = Html::parse_document(r"<html><body><span>不是链接</span></body></html>");
         let selector = Selector::parse("span").unwrap();
         let element = html.select(&selector).next().unwrap();
         let result = extract_link(&element, None);

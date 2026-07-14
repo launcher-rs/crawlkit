@@ -22,13 +22,13 @@ async fn main() {
     });
 
     // HTML 回调：提取链接
-    c.on_html(|html, base_url| {
-        let links = crawlkit::html::extract_links(html, "a[href]");
+    c.on_html(|ctx| {
+        let links = crawlkit::html::extract_links(ctx.body, "a[href]");
         let abs_links: Vec<String> = links
             .iter()
-            .filter_map(|l| crawlkit::html::resolve_url(base_url, l))
+            .filter_map(|l| crawlkit::html::resolve_url(ctx.url, l))
             .collect();
-        println!("  [HTML] 在 {} 中发现 {} 个链接", base_url, abs_links.len());
+        println!("  [HTML] 在 {} 中发现 {} 个链接", ctx.url, abs_links.len());
         for link in abs_links.iter().take(5) {
             println!("    -> {}", link);
         }

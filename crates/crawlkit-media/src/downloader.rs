@@ -41,12 +41,24 @@ impl Default for MediaDownloader {
 
 impl MediaDownloader {
     /// 使用指定配置创建下载器
+    ///
+    /// 自动读取 `PROXY_URL`/`PROXY_USER`/`PROXY_PASS` 环境变量配置代理。
     pub fn new(config: DownloadConfig) -> Self {
-        let client = reqwest::Client::builder()
+        let mut builder = reqwest::Client::builder();
+        builder = builder
             .timeout(Duration::from_secs(config.timeout_secs))
-            .user_agent(&config.user_agent)
-            .build()
-            .unwrap_or_default();
+            .user_agent(&config.user_agent);
+
+        // 读取代理环境变量（与 ReqwestClient 保持一致）
+        if let Ok(proxy_url) = std::env::var("PROXY_URL") {
+            let proxy_user = std::env::var("PROXY_USER").unwrap_or_default();
+            let proxy_pass = std::env::var("PROXY_PASS").unwrap_or_default();
+            if let Ok(proxy) = reqwest::Proxy::all(&proxy_url) {
+                builder = builder.proxy(proxy.basic_auth(&proxy_user, &proxy_pass));
+            }
+        }
+
+        let client = builder.build().unwrap_or_default();
 
         let semaphore = Arc::new(Semaphore::new(config.max_concurrent));
 
@@ -113,24 +125,21 @@ impl MediaDownloader {
             .and_then(|v| v.to_str().ok())
             .and_then(|s| s.parse().ok());
 
-        if let Some(max_size) = self.config.max_file_size {
-            if let Some(size) = content_length {
-                if size > max_size {
+        if let Some(max_size) = self.config.max_file_size
+            && let Some(size) = content_length
+                && size > max_size {
                     return Err(MediaError::FileTooLarge(size, max_size));
                 }
-            }
-        }
 
         let bytes = response.bytes()
             .await
             .map_err(|e| MediaError::Download(e.to_string()))?;
 
         let actual_size = bytes.len() as u64;
-        if let Some(max_size) = self.config.max_file_size {
-            if actual_size > max_size {
+        if let Some(max_size) = self.config.max_file_size
+            && actual_size > max_size {
                 return Err(MediaError::FileTooLarge(actual_size, max_size));
             }
-        }
 
         let hash = compute_sha256(&bytes);
         let media_type = detect_media_type(&content_type, url);
@@ -271,13 +280,13 @@ pub fn url_to_filename(url: &str) -> String {
 
         if filename.is_empty() || filename == "/" {
             let hash = &compute_sha256(url.as_bytes())[..12];
-            return format!("download_{}", hash);
+            return format!("download_{hash}");
         }
 
         sanitize_filename(filename)
     } else {
         let hash = &compute_sha256(url.as_bytes())[..12];
-        format!("download_{}", hash)
+        format!("download_{hash}")
     }
 }
 

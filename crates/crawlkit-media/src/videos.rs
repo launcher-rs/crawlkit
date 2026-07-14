@@ -56,32 +56,28 @@ pub fn extract_videos(document: &Html, base_url: Option<&Url>) -> Vec<VideoMedia
 
     if let Ok(sel) = Selector::parse("iframe[src]") {
         for el in document.select(&sel) {
-            if let Some(src) = el.value().attr("src") {
-                if is_video_embed(src) {
-                    if let Some(video) = extract_embedded_video(&el, base_url) {
+            if let Some(src) = el.value().attr("src")
+                && is_video_embed(src)
+                    && let Some(video) = extract_embedded_video(&el, base_url) {
                         let key = video.absolute_url.as_ref().unwrap_or(&video.src).clone();
                         if seen_urls.insert(key) {
                             videos.push(video);
                         }
                     }
-                }
-            }
         }
     }
 
     if let Ok(sel) = Selector::parse("object[data], embed[src]") {
         for el in document.select(&sel) {
             let src = el.value().attr("data").or_else(|| el.value().attr("src"));
-            if let Some(src) = src {
-                if is_video_url(src) {
-                    if let Some(video) = create_video_from_url(src, &el, base_url) {
+            if let Some(src) = src
+                && is_video_url(src)
+                    && let Some(video) = create_video_from_url(src, &el, base_url) {
                         let key = video.absolute_url.as_ref().unwrap_or(&video.src).clone();
                         if seen_urls.insert(key) {
                             videos.push(video);
                         }
                     }
-                }
-            }
         }
     }
 
@@ -121,14 +117,14 @@ fn extract_video_element(el: &ElementRef, base_url: Option<&Url>) -> Option<Vide
     video.controls = el.value().attr("controls").is_some();
     video.playsinline = el.value().attr("playsinline").is_some();
 
-    video.mime_type = el.value().attr("type").map(|s| s.to_string())
+    video.mime_type = el.value().attr("type").map(std::string::ToString::to_string)
         .or_else(|| guess_video_mime(&video.src));
 
     video.sources = extract_video_sources(el, base_url);
     video.tracks = extract_video_tracks(el, base_url);
 
-    video.title = el.value().attr("title").map(|s| s.to_string())
-        .or_else(|| el.value().attr("aria-label").map(|s| s.to_string()));
+    video.title = el.value().attr("title").map(std::string::ToString::to_string)
+        .or_else(|| el.value().attr("aria-label").map(std::string::ToString::to_string));
 
     Some(video)
 }
@@ -142,10 +138,10 @@ fn extract_video_sources(video: &ElementRef, base_url: Option<&Url>) -> Vec<Vide
             if let Some(src) = source.value().attr("src") {
                 sources.push(VideoSource {
                     src: resolve_url(src, base_url).unwrap_or_else(|| src.to_string()),
-                    mime_type: source.value().attr("type").map(|s| s.to_string()),
+                    mime_type: source.value().attr("type").map(std::string::ToString::to_string),
                     quality: source.value().attr("data-quality")
                         .or_else(|| source.value().attr("label"))
-                        .map(|s| s.to_string()),
+                        .map(std::string::ToString::to_string),
                 });
             }
         }
@@ -172,8 +168,8 @@ fn extract_video_tracks(video: &ElementRef, base_url: Option<&Url>) -> Vec<Video
                 tracks.push(VideoTrack {
                     src: resolve_url(src, base_url).unwrap_or_else(|| src.to_string()),
                     kind,
-                    label: track.value().attr("label").map(|s| s.to_string()),
-                    srclang: track.value().attr("srclang").map(|s| s.to_string()),
+                    label: track.value().attr("label").map(std::string::ToString::to_string),
+                    srclang: track.value().attr("srclang").map(std::string::ToString::to_string),
                     is_default: track.value().attr("default").is_some(),
                 });
             }
@@ -201,7 +197,7 @@ fn extract_embedded_video(el: &ElementRef, base_url: Option<&Url>) -> Option<Vid
         .and_then(|w| w.trim_end_matches("px").parse().ok());
     video.height = el.value().attr("height")
         .and_then(|h| h.trim_end_matches("px").parse().ok());
-    video.title = el.value().attr("title").map(|s| s.to_string());
+    video.title = el.value().attr("title").map(std::string::ToString::to_string);
     video.poster = generate_thumbnail_url(&video);
 
     Some(video)
@@ -268,12 +264,12 @@ fn generate_thumbnail_url(video: &VideoMedia) -> Option<String> {
     match video.platform {
         VideoPlatform::YouTube => {
             video.video_id.as_ref().map(|id| {
-                format!("https://img.youtube.com/vi/{}/maxresdefault.jpg", id)
+                format!("https://img.youtube.com/vi/{id}/maxresdefault.jpg")
             })
         }
         VideoPlatform::Dailymotion => {
             video.video_id.as_ref().map(|id| {
-                format!("https://www.dailymotion.com/thumbnail/video/{}", id)
+                format!("https://www.dailymotion.com/thumbnail/video/{id}")
             })
         }
         _ => None,
@@ -333,7 +329,7 @@ fn resolve_url(href: &str, base_url: Option<&Url>) -> Option<String> {
     }
 
     if href.starts_with("//") {
-        return Some(format!("https:{}", href));
+        return Some(format!("https:{href}"));
     }
 
     base_url.and_then(|base| base.join(href).ok().map(|u| u.to_string()))
@@ -370,17 +366,17 @@ pub fn has_videos(document: &Html) -> bool {
 
 /// 获取 YouTube 嵌入 URL
 pub fn youtube_embed_url(video_id: &str) -> String {
-    format!("https://www.youtube.com/embed/{}", video_id)
+    format!("https://www.youtube.com/embed/{video_id}")
 }
 
 /// 获取 Vimeo 嵌入 URL
 pub fn vimeo_embed_url(video_id: &str) -> String {
-    format!("https://player.vimeo.com/video/{}", video_id)
+    format!("https://player.vimeo.com/video/{video_id}")
 }
 
 /// 获取 YouTube 缩略图 URL
 pub fn youtube_thumbnail(video_id: &str, quality: &str) -> String {
-    format!("https://img.youtube.com/vi/{}/{}.jpg", video_id, quality)
+    format!("https://img.youtube.com/vi/{video_id}/{quality}.jpg")
 }
 
 // ============================================================================

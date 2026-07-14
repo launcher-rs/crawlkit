@@ -32,11 +32,13 @@ lazy_static! {
     ];
 
     /// 占位图 URL 模式
+    #[allow(clippy::unwrap_used)]
     static ref PLACEHOLDER_PATTERN: Regex = Regex::new(
         r"(?i)(placeholder|blank|spacer|pixel|1x1|loading|lazy)"
     ).unwrap();
 
     /// data URL 模式
+    #[allow(clippy::unwrap_used)]
     static ref DATA_URL: Regex = Regex::new(r"^data:image/").unwrap();
 }
 
@@ -83,16 +85,15 @@ fn extract_image_element(el: &ElementRef, base_url: Option<&Url>) -> Option<Imag
     let format = absolute_url.as_ref()
         .and_then(|u| extract_extension(u))
         .or_else(|| extract_extension(&src))
-        .map(|ext| ImageFormat::from_extension(&ext))
-        .unwrap_or(ImageFormat::Unknown);
+        .map_or(ImageFormat::Unknown, |ext| ImageFormat::from_extension(&ext));
 
     let width = el.value().attr("width")
         .and_then(|w| w.trim_end_matches("px").parse().ok());
     let height = el.value().attr("height")
         .and_then(|h| h.trim_end_matches("px").parse().ok());
 
-    let alt = el.value().attr("alt").map(|s| s.to_string());
-    let is_decorative = alt.as_ref().map(|a| a.is_empty()).unwrap_or(false);
+    let alt = el.value().attr("alt").map(std::string::ToString::to_string);
+    let is_decorative = alt.as_ref().is_some_and(std::string::String::is_empty);
 
     let loading = match el.value().attr("loading") {
         Some("lazy") => ImageLoading::Lazy,
@@ -105,12 +106,12 @@ fn extract_image_element(el: &ElementRef, base_url: Option<&Url>) -> Option<Imag
 
     let data_src = LAZY_ATTRS.iter()
         .find_map(|attr| el.value().attr(attr))
-        .map(|s| s.to_string());
+        .map(std::string::ToString::to_string);
 
     let is_placeholder = is_placeholder_image(&src, width, height);
 
-    let classes: Vec<String> = el.value().classes().map(|s| s.to_string()).collect();
-    let id = el.value().attr("id").map(|s| s.to_string());
+    let classes: Vec<String> = el.value().classes().map(std::string::ToString::to_string).collect();
+    let id = el.value().attr("id").map(std::string::ToString::to_string);
 
     let mime_type = format.mime_type();
 
@@ -118,7 +119,7 @@ fn extract_image_element(el: &ElementRef, base_url: Option<&Url>) -> Option<Imag
         src,
         absolute_url,
         alt,
-        title: el.value().attr("title").map(|s| s.to_string()),
+        title: el.value().attr("title").map(std::string::ToString::to_string),
         width,
         height,
         format,
@@ -126,7 +127,7 @@ fn extract_image_element(el: &ElementRef, base_url: Option<&Url>) -> Option<Imag
         loading,
         is_decorative,
         srcset,
-        sizes: el.value().attr("sizes").map(|s| s.to_string()),
+        sizes: el.value().attr("sizes").map(std::string::ToString::to_string),
         data_src,
         is_placeholder,
         size_bytes: None,
@@ -140,9 +141,9 @@ fn extract_image_element(el: &ElementRef, base_url: Option<&Url>) -> Option<Imag
 fn extract_picture_element(picture: &ElementRef, base_url: Option<&Url>) -> Vec<ImageMedia> {
     let mut images = Vec::new();
 
-    if let Ok(img_sel) = Selector::parse("img") {
-        if let Some(img_el) = picture.select(&img_sel).next() {
-            if let Some(mut img) = extract_image_element(&img_el, base_url) {
+    if let Ok(img_sel) = Selector::parse("img")
+        && let Some(img_el) = picture.select(&img_sel).next()
+            && let Some(mut img) = extract_image_element(&img_el, base_url) {
                 if let Ok(source_sel) = Selector::parse("source") {
                     for source in picture.select(&source_sel) {
                         if let Some(srcset_str) = source.value().attr("srcset") {
@@ -153,8 +154,6 @@ fn extract_picture_element(picture: &ElementRef, base_url: Option<&Url>) -> Vec<
                 }
                 images.push(img);
             }
-        }
-    }
 
     images
 }
@@ -167,7 +166,7 @@ fn get_image_src(el: &ElementRef) -> Option<String> {
             LAZY_ATTRS.iter()
                 .find_map(|attr| el.value().attr(attr))
         })
-        .map(|s| s.to_string())
+        .map(std::string::ToString::to_string)
 }
 
 /// 解析 srcset 属性
@@ -213,11 +212,10 @@ fn is_placeholder_image(src: &str, width: Option<u32>, height: Option<u32>) -> b
         return true;
     }
 
-    if let (Some(w), Some(h)) = (width, height) {
-        if w <= 10 && h <= 10 {
+    if let (Some(w), Some(h)) = (width, height)
+        && w <= 10 && h <= 10 {
             return true;
         }
-    }
 
     let placeholders = [
         "placehold.it",
@@ -241,7 +239,7 @@ fn extract_extension(url: &str) -> Option<String> {
 
     let ext = filename.rsplit('.').next()?;
 
-    if ext != filename && ext.len() <= 5 && ext.chars().all(|c| c.is_alphanumeric()) {
+    if ext != filename && ext.len() <= 5 && ext.chars().all(char::is_alphanumeric) {
         Some(ext.to_lowercase())
     } else {
         None
@@ -255,7 +253,7 @@ fn resolve_url(href: &str, base_url: Option<&Url>) -> Option<String> {
     }
 
     if href.starts_with("//") {
-        return Some(format!("https:{}", href));
+        return Some(format!("https:{href}"));
     }
 
     if href.starts_with("data:") {
