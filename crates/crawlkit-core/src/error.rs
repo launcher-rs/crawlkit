@@ -43,6 +43,10 @@ pub enum CrawlError {
     #[error("所有请求器均失败: {0}")]
     AllFetchersFailed(String),
 
+    /// 检测到机器人验证页面（HTTP 200 但内容为 CAPTCHA/challenge）
+    #[error("机器人验证页面: {0}")]
+    BotChallenge(String),
+
     /// 锁中毒
     #[error("锁错误: {0}")]
     Lock(String),

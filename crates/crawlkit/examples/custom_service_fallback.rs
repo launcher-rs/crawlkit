@@ -1,7 +1,12 @@
-//! 自定义外部服务后端组合示例
+//! # 自定义外部服务后端组合示例
 //!
-//! 运行：
-//! `cargo run -p crawlkit --example custom_service_fallback`
+//! 演示将自定义 HttpClient（Jina Reader API）与内置 ReqwestClient 组合：
+//! - 优先使用本地 ReqwestClient 直接请求
+//! - 失败时自动切换到 Jina Reader API（远程渲染）
+//! - `on_backend_error` 跟踪切换过程
+//! - 自动检测机器人验证页面
+//!
+//! 运行：`cargo run -p crawlkit --example custom_service_fallback`
 //!
 //! 可选环境变量：
 //! - `JINA_API_TOKEN`：Jina Reader API Token
@@ -13,13 +18,16 @@ use crawlkit::{
     Collector, CompositeFetcher, CrawlError, HttpClient, ReqwestClient, Response, Result,
 };
 
-pub struct JinaClient {
+/// Jina Reader API 客户端
+///
+/// 将任意 URL 通过 Jina Reader API 渲染为 Markdown，可绕过部分反爬限制。
+struct JinaClient {
     client: reqwest::Client,
     token: Option<String>,
 }
 
 impl JinaClient {
-    pub fn new(token: Option<String>) -> Self {
+    fn new(token: Option<String>) -> Self {
         Self {
             client: reqwest::Client::new(),
             token,
@@ -85,25 +93,37 @@ impl HttpClient for JinaClient {
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
+    // 1. 创建本地 ReqwestClient（优先使用）
     let local = ReqwestClient::builder()
         .name("reqwest-local")
         .timeout(Duration::from_secs(10))
         .max_retries(1)
         .build()?;
 
+    // 2. 创建 Jina Reader API 客户端（备选）
     let jina = JinaClient::new(env::var("JINA_API_TOKEN").ok());
 
-    let fetcher = CompositeFetcher::new(vec![Box::new(local), Box::new(jina)]);
+    // 3. 组合：优先本地 → 失败时切换到 Jina
+    let fetcher = CompositeFetcher::new(vec![Box::new(local), Box::new(jina)])
+        .on_backend_error(|name, err| {
+            eprintln!("  [{}] 失败: {}，切换到下一个后端", name, err);
+        });
+
     let collector = Collector::with_client(fetcher);
 
-    let response = collector
-        .client()
-        .get("https://example.com", &HashMap::new())
-        .await?;
+    // 4. 使用 Collector 回调链处理
+    let mut collector = collector;
+    collector.on_html(|ctx| {
+        println!("  [HTML] 获取到 {} 字节，URL: {}", ctx.body.len(), ctx.url);
+    });
 
-    println!("组合客户端: {}", collector.client().name());
-    println!("状态码: {}", response.status);
-    println!("内容长度: {}", response.body.len());
+    println!("=== 自定义后端组合示例 ===\n");
+    println!("优先使用本地 Reqwest，失败时切换到 Jina Reader API\n");
+
+    match collector.visit("https://example.com").await {
+        Ok(()) => println!("\n访问完成"),
+        Err(e) => eprintln!("\n访问失败: {}", e),
+    }
 
     Ok(())
 }

@@ -308,6 +308,12 @@ pub struct Collector {
 
     /// 域名黑名单（空 = 不限制）
     disallowed_domains: Vec<String>,
+
+    /// 是否检测机器人验证页面（默认开启）
+    ///
+    /// 启用时，HTTP 200 但内容为 CAPTCHA/challenge 的响应会被视为 `BotChallenge` 错误，
+    /// 触发 `on_error` 回调并返回 `Err`。关闭后跳过检测，直接当作正常响应处理。
+    detect_bot_challenge: bool,
 }
 
 impl Collector {
@@ -371,6 +377,7 @@ impl Collector {
             disallowed_url_filters: Vec::new(),
             allowed_domains: Vec::new(),
             disallowed_domains: Vec::new(),
+            detect_bot_challenge: true,
         }
     }
 
@@ -395,6 +402,15 @@ impl Collector {
     /// 设置 follow_links 最大递归深度（默认 10）
     pub fn set_max_depth(&mut self, depth: usize) {
         self.max_depth = depth;
+    }
+
+    /// 启用/禁用机器人验证页面检测（默认开启）
+    ///
+    /// 启用时，HTTP 200 但内容为 CAPTCHA/challenge 的响应（如 PerimeterX、Cloudflare、DataDome）
+    /// 会被视为 `BotChallenge` 错误，触发 `on_error` 回调并返回 `Err`。
+    /// 关闭后跳过检测，直接当作正常响应处理。
+    pub fn set_detect_bot_challenge(&mut self, enabled: bool) {
+        self.detect_bot_challenge = enabled;
     }
 
     /// 自定义链接跟踪选择器
@@ -635,6 +651,19 @@ impl Collector {
             body_len = response.body.len(),
             "收到响应"
         );
+
+        // 检测机器人验证页面（HTTP 200 但内容为 CAPTCHA/challenge）
+        if self.detect_bot_challenge && response.is_bot_challenge() {
+            let err = CrawlError::BotChallenge(format!(
+                "检测到机器人验证页面: {}",
+                response.url
+            ));
+            warn!(url = %response.url, "机器人验证页面，跳过后续处理");
+            if let Some(ref cb) = self.on_error {
+                cb(&err);
+            }
+            return Err(err);
+        }
 
         // 标记已访问
         {
@@ -939,6 +968,7 @@ impl Clone for Collector {
             disallowed_url_filters: self.disallowed_url_filters.clone(),
             allowed_domains: self.allowed_domains.clone(),
             disallowed_domains: self.disallowed_domains.clone(),
+            detect_bot_challenge: self.detect_bot_challenge,
         }
     }
 }
@@ -973,6 +1003,7 @@ impl Collector {
             disallowed_url_filters: self.disallowed_url_filters.clone(),
             allowed_domains: self.allowed_domains.clone(),
             disallowed_domains: self.disallowed_domains.clone(),
+            detect_bot_challenge: self.detect_bot_challenge,
         }
     }
 
