@@ -1184,7 +1184,34 @@ impl Collector {
         for (k, v) in self.http_client.default_headers() {
             req.headers.entry(k).or_insert(v);
         }
-        let response = self.http_client.get(url, &req.headers).await?;
+
+        // 执行 on_request 回调（允许修改请求或中止）
+        if let Some(ref cb) = self.on_request {
+            cb(&mut req);
+        }
+        if req.aborted {
+            debug!(url = %req.url, "请求已被 on_request 回调中止");
+            return Ok(Vec::new());
+        }
+
+        let response = match self.http_client.get(url, &req.headers).await {
+            Ok(resp) => resp,
+            Err(e) => {
+                if let Some(ref cb) = self.on_error {
+                    cb(&e);
+                }
+                return Err(e);
+            }
+        };
+
+        // 执行响应回调
+        if let Some(ref cb) = self.on_response_headers {
+            cb(&response);
+        }
+        if let Some(ref cb) = self.on_response {
+            cb(&response);
+        }
+
         let links = extract_absolute_links(
             &response.body,
             selector,
@@ -1207,7 +1234,34 @@ impl Collector {
         for (k, v) in self.http_client.default_headers() {
             req.headers.entry(k).or_insert(v);
         }
-        let response = self.http_client.get(url, &req.headers).await?;
+
+        // 执行 on_request 回调（允许修改请求或中止）
+        if let Some(ref cb) = self.on_request {
+            cb(&mut req);
+        }
+        if req.aborted {
+            debug!(url = %req.url, "请求已被 on_request 回调中止");
+            return Ok(Vec::new());
+        }
+
+        let response = match self.http_client.get(url, &req.headers).await {
+            Ok(resp) => resp,
+            Err(e) => {
+                if let Some(ref cb) = self.on_error {
+                    cb(&e);
+                }
+                return Err(e);
+            }
+        };
+
+        // 执行响应回调
+        if let Some(ref cb) = self.on_response_headers {
+            cb(&response);
+        }
+        if let Some(ref cb) = self.on_response {
+            cb(&response);
+        }
+
         let links = extract_absolute_links(
             &response.body,
             selector,
@@ -1220,14 +1274,44 @@ impl Collector {
 
     /// 一步提取文章内容
     ///
-    /// 不触发回调，直接返回 Article 结构。
+    /// 触发 `on_request`、`on_response` 等回调，用于调试或记录。
     pub async fn get_article(&self, url: &str) -> Result<Article> {
         debug!(url, "提取文章");
-        let mut headers = self.default_headers.clone();
-        for (k, v) in self.http_client.default_headers() {
-            headers.entry(k).or_insert(v);
+        let mut req = Request::get(url);
+        for (k, v) in &self.default_headers {
+            req.headers.insert(k.clone(), v.clone());
         }
-        let response = self.http_client.get(url, &headers).await?;
+        for (k, v) in self.http_client.default_headers() {
+            req.headers.entry(k).or_insert(v);
+        }
+
+        // 执行 on_request 回调（允许修改请求或中止）
+        if let Some(ref cb) = self.on_request {
+            cb(&mut req);
+        }
+        if req.aborted {
+            debug!(url = %req.url, "请求已被 on_request 回调中止");
+            return Err(CrawlError::Http("请求被中止".to_string()));
+        }
+
+        let response = match self.http_client.get(url, &req.headers).await {
+            Ok(resp) => resp,
+            Err(e) => {
+                if let Some(ref cb) = self.on_error {
+                    cb(&e);
+                }
+                return Err(e);
+            }
+        };
+
+        // 执行响应回调
+        if let Some(ref cb) = self.on_response_headers {
+            cb(&response);
+        }
+        if let Some(ref cb) = self.on_response {
+            cb(&response);
+        }
+
         let article = extract_article(&response.body, &response.url);
         debug!(title = %article.title, "文章提取完成");
         Ok(article)
