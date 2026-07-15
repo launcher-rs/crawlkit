@@ -97,11 +97,12 @@ pub fn extract_links_by_xpath(html_content: &str, selector: &str) -> Result<Vec<
             XpathItem::Node(Node::NonTreeNode(NonTreeXpathNode::AttributeNode(attribute))) => {
                 attribute.value.clone()
             }
-            XpathItem::Node(Node::TreeNode(tree_node)) => match tree_node.data {
+            XpathItem::Node(Node::TreeNode(tree_node)) => match &tree_node.data {
                 XpathItemTreeNodeData::ElementNode(element) => element
                     .get_attribute("href")
                     .map(str::to_string)
                     .unwrap_or_default(),
+                XpathItemTreeNodeData::TextNode(text) => text.to_string(),
                 _ => String::new(),
             },
             _ => String::new(),

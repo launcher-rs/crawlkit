@@ -23,6 +23,7 @@ use crawlkit_fetcher_wreq::WreqClient;
 use crawlkit_parser::html::{
     Article, LinkSelectorType, extract_absolute_links, extract_article, sanitize_for_xpath,
 };
+use crawlkit_parser::feeds::detect_feed_type;
 use crawlkit_parser::scraper::{Html, Selector};
 use crawlkit_parser::skyscraper::html as xpath_html;
 use crawlkit_parser::skyscraper::xpath::{self as skyscraper_xpath, XpathItemTree};
@@ -1269,6 +1270,74 @@ impl Collector {
             &response.url,
         )?;
         debug!(count = links.len(), "提取到链接");
+        Ok(links)
+    }
+
+    /// 从 RSS/Atom/JSON Feed 中提取所有文章链接
+    ///
+    /// 自动检测 Feed 类型，使用对应的 XPath 表达式提取 `<link>` 文本内容。
+    ///
+    /// # 示例
+    /// ```rust,no_run
+    /// # use crawlkit::Collector;
+    /// # tokio_test::block_on(async {
+    /// let c = Collector::new();
+    /// let links = c.get_feed_links("https://www.hoover.org/feed").await.unwrap();
+    /// println!("{:?}", links);
+    /// # });
+    /// ```
+    pub async fn get_feed_links(&self, url: &str) -> Result<Vec<String>> {
+        debug!(url, "提取 Feed 链接");
+        let mut req = Request::get(url);
+        for (k, v) in &self.default_headers {
+            req.headers.insert(k.clone(), v.clone());
+        }
+        for (k, v) in self.http_client.default_headers() {
+            req.headers.entry(k).or_insert(v);
+        }
+
+        // 执行 on_request 回调
+        if let Some(ref cb) = self.on_request {
+            cb(&mut req);
+        }
+        if req.aborted {
+            debug!(url = %req.url, "请求已被 on_request 回调中止");
+            return Ok(Vec::new());
+        }
+
+        let response = match self.http_client.get(url, &req.headers).await {
+            Ok(resp) => resp,
+            Err(e) => {
+                if let Some(ref cb) = self.on_error {
+                    cb(&e);
+                }
+                return Err(e);
+            }
+        };
+
+        // 执行响应回调
+        if let Some(ref cb) = self.on_response_headers {
+            cb(&response);
+        }
+        if let Some(ref cb) = self.on_response {
+            cb(&response);
+        }
+
+        // 根据内容或 URL 检测 Feed 类型
+        let feed_type = detect_feed_type(&response.body);
+        debug!(?feed_type, "检测到 Feed 类型");
+
+        let xpath = match feed_type {
+            crawlkit_parser::feeds::FeedType::Atom => "//entry/link",
+            crawlkit_parser::feeds::FeedType::Json => {
+                // JSON Feed 需要特殊处理，暂不支持
+                return Err(CrawlError::Html("JSON Feed 暂不支持，请使用 get_links_by_xpath".to_string()));
+            }
+            _ => "//item/link", // RSS 0.91/0.92/2.0
+        };
+
+        let links = extract_absolute_links(&response.body, xpath, LinkSelectorType::Xpath, &response.url)?;
+        debug!(count = links.len(), "提取到 Feed 链接");
         Ok(links)
     }
 
