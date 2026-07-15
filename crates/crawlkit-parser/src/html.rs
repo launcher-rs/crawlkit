@@ -4,6 +4,7 @@
 //! 底层使用 `scraper`（基于 html5ever）和 `dom_smoothie`（Readability 模式）。
 
 use dom_smoothie::{Config, Readability, TextMode};
+use regex::Regex;
 use scraper::{Html, Selector};
 use skyscraper::{
     html as xpath_html,
@@ -76,8 +77,60 @@ pub fn extract_links_by_selector(
     }
 }
 
+/// 检测内容是否为 XML（RSS/Atom/Sitemap 等）
+fn is_xml_content(content: &str) -> bool {
+    let trimmed = content.trim_start();
+    trimmed.starts_with("<?xml")
+        || trimmed.starts_with("<rss")
+        || trimmed.starts_with("<feed")
+        || trimmed.starts_with("<sitemap")
+        || trimmed.starts_with("<urlset")
+}
+
+/// 从 RSS/Atom XML 内容中提取 `<link>` 文本链接
+///
+/// 使用正则匹配 `<link>url</link>` 模式，适用于 RSS 2.0 和 Atom。
+fn extract_links_from_xml(xml_content: &str) -> Vec<String> {
+    let mut links = Vec::new();
+    let mut seen = std::collections::HashSet::new();
+
+    // RSS 2.0: <link>https://example.com</link>
+    // Atom: <link href="https://example.com"/> 或 <link>https://example.com</link>
+    let re_text_link = Regex::new(r"<link>\s*(https?://[^<]+?)\s*</link>").unwrap();
+    let re_attr_link = Regex::new(r#"<link[^>]+href="(https?://[^"]+)""#).unwrap();
+
+    for cap in re_text_link.captures_iter(xml_content) {
+        if let Some(url) = cap.get(1) {
+            let url = url.as_str().trim().to_string();
+            if !url.is_empty() && seen.insert(url.clone()) {
+                links.push(url);
+            }
+        }
+    }
+
+    for cap in re_attr_link.captures_iter(xml_content) {
+        if let Some(url) = cap.get(1) {
+            let url = url.as_str().trim().to_string();
+            if !url.is_empty() && seen.insert(url.clone()) {
+                links.push(url);
+            }
+        }
+    }
+
+    links
+}
+
 /// 使用 XPath 表达式提取链接。
+///
+/// 对 HTML 和 XML（RSS/Atom）内容均有效：
+/// - HTML：自动清理为规范格式，支持 `href` 属性和文本节点
+/// - XML（RSS/Atom）：使用正则提取 `<link>` 文本，忽略 XPath 选择器
 pub fn extract_links_by_xpath(html_content: &str, selector: &str) -> Result<Vec<String>> {
+    // XML 内容（RSS/Atom）使用正则提取，跳过 XPath 解析
+    if is_xml_content(html_content) {
+        return Ok(extract_links_from_xml(html_content));
+    }
+
     let sanitized = sanitize_for_xpath(html_content);
     let document = xpath_html::parse(&sanitized).map_err(|e| CrawlError::Html(e.to_string()))?;
     let tree = XpathItemTree::from(&document);
@@ -422,5 +475,41 @@ mod tests {
         let sanitized = sanitize_for_xpath(html);
         assert!(sanitized.contains("<div>"));
         assert!(sanitized.contains("<p>"));
+    }
+
+    #[test]
+    fn test_rss_xml_xpath_text_node() {
+        let rss = r#"<?xml version="1.0" encoding="utf-8"?>
+<rss version="2.0">
+  <channel>
+    <item>
+      <link>https://example.com/article1</link>
+    </item>
+    <item>
+      <link>https://example.com/article2</link>
+    </item>
+  </channel>
+</rss>"#;
+        let links = extract_links_by_xpath(rss, "//item/link").unwrap();
+        assert_eq!(links.len(), 2);
+        assert!(links.contains(&"https://example.com/article1".to_string()));
+        assert!(links.contains(&"https://example.com/article2".to_string()));
+    }
+
+    #[test]
+    fn test_atom_xml_xpath_link_attr() {
+        let atom = r#"<?xml version="1.0" encoding="utf-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom">
+  <entry>
+    <link href="https://example.com/atom1"/>
+  </entry>
+  <entry>
+    <link href="https://example.com/atom2"/>
+  </entry>
+</feed>"#;
+        let links = extract_links_by_xpath(atom, "//entry/link/@href").unwrap();
+        assert_eq!(links.len(), 2);
+        assert!(links.contains(&"https://example.com/atom1".to_string()));
+        assert!(links.contains(&"https://example.com/atom2".to_string()));
     }
 }
