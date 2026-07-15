@@ -1174,7 +1174,7 @@ impl Collector {
 
     /// 提取页面中所有匹配的链接
     ///
-    /// 不触发回调，直接返回绝对 URL 列表。
+    /// 触发 `on_request`、`on_response`、`on_error` 等回调，返回绝对 URL 列表。
     pub async fn get_links(&self, url: &str, selector: &str) -> Result<Vec<String>> {
         debug!(url, selector, "提取链接");
         let mut req = Request::get(url);
@@ -1224,7 +1224,7 @@ impl Collector {
 
     /// 使用 XPath 提取页面中所有匹配的链接
     ///
-    /// 不触发回调，直接返回绝对 URL 列表。
+    /// 触发 `on_request`、`on_response`、`on_error` 等回调，返回绝对 URL 列表。
     pub async fn get_links_by_xpath(&self, url: &str, selector: &str) -> Result<Vec<String>> {
         debug!(url, selector, "使用 XPath 提取链接");
         let mut req = Request::get(url);
