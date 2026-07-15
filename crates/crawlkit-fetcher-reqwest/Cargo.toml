@@ -1,6 +1,6 @@
 [package]
 name = "crawlkit-fetcher-reqwest"
-version.workspace = true
+version = "0.3.2"
 edition = "2024"
 description = "crawlkit 基于 reqwest 的 HTTP 客户端实现"
 repository.workspace = true

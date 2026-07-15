@@ -1,6 +1,6 @@
 [package]
 name = "crawlkit-fetcher"
-version.workspace = true
+version = "0.3.2"
 edition = "2024"
 description = "crawlkit 组合请求器，可串联多个 HTTP 客户端实现故障转移"
 repository.workspace = true

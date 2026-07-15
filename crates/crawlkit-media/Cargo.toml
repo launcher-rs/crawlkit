@@ -1,6 +1,6 @@
 [package]
 name = "crawlkit-media"
-version.workspace = true
+version = "0.3.2"
 edition = "2024"
 description = "crawlkit 媒体提取与下载模块（图片、视频、音频、文档、嵌入内容）"
 repository.workspace = true

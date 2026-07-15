@@ -416,7 +416,7 @@ dependencies = [
 
 [[package]]
 name = "crawlkit-fetcher"
-version = "0.4.0"
+version = "0.3.2"
 dependencies = [
  "async-trait",
  "crawlkit-core",
@@ -426,7 +426,7 @@ dependencies = [
 
 [[package]]
 name = "crawlkit-fetcher-reqwest"
-version = "0.4.0"
+version = "0.3.2"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -439,7 +439,7 @@ dependencies = [
 
 [[package]]
 name = "crawlkit-fetcher-wreq"
-version = "0.4.0"
+version = "0.3.2"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -452,7 +452,7 @@ dependencies = [
 
 [[package]]
 name = "crawlkit-media"
-version = "0.4.0"
+version = "0.3.2"
 dependencies = [
  "backon",
  "base64",
