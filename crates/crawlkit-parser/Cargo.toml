@@ -7,7 +7,7 @@ repository.workspace = true
 license.workspace = true
 
 [dependencies]
-crawlkit-core = { path = "../crawlkit-core", version = "0.3.0" }
+crawlkit-core = { path = "../crawlkit-core", version = "0.4.0" }
 scraper = "0.22"
 dom_smoothie = "0.18.0"
 url = "2"
