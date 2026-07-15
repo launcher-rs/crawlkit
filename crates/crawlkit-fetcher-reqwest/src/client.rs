@@ -246,7 +246,7 @@ impl ReqwestClientBuilder {
 
         let random_user_agent = self.random_user_agent.unwrap_or(true);
         if !random_user_agent {
-            builder = builder.user_agent("crawlkit/0.2.0");
+            builder = builder.user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36");
         }
 
         builder = builder.redirect(reqwest::redirect::Policy::limited(10));

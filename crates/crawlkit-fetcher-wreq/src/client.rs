@@ -245,11 +245,13 @@ impl WreqClientBuilder {
 
         let user_agent = self
             .user_agent
-            .unwrap_or_else(|| "crawlkit/0.2.0".to_string());
+            .unwrap_or_else(|| "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36".to_string());
         builder = builder.user_agent(user_agent);
 
         if let Some(emu) = self.emulation {
             builder = builder.emulation(emu);
+        }else { 
+            builder = builder.emulation(wreq_util::Emulation::random());
         }
 
         builder = builder.redirect(wreq::redirect::Policy::limited(10));
