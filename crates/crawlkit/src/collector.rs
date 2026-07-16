@@ -42,6 +42,9 @@ type ErrorCallback = Arc<dyn Fn(&dyn std::error::Error) + Send + Sync>;
 type ResponseHeadersCallback = Arc<dyn Fn(&Response) + Send + Sync>;
 type ScrapedCallback = Arc<dyn Fn(&Response) + Send + Sync>;
 
+/// 自定义检测回调类型：返回 `true` 表示检测到拦截
+type DetectCallback = Arc<dyn Fn(&Response) -> bool + Send + Sync>;
+
 /// HTML 元素回调（CSS 选择器匹配）
 type HtmlElementCallback = Arc<dyn Fn(&Element) + Send + Sync>;
 
@@ -315,6 +318,22 @@ pub struct Collector {
     /// 启用时，HTTP 200 但内容为 CAPTCHA/challenge 的响应会被视为 `BotChallenge` 错误，
     /// 触发 `on_error` 回调并返回 `Err`。关闭后跳过检测，直接当作正常响应处理。
     detect_bot_challenge: bool,
+
+    /// 是否检测访问被拒绝页面（默认开启）
+    ///
+    /// 启用时，HTTP 403/401 等拒绝访问响应（如 Akamai、Cloudflare WAF）会被视为
+    /// `AccessDenied` 错误，触发 `on_error` 回调并返回 `Err`。
+    detect_access_denied: bool,
+
+    /// 自定义机器人验证页面检测回调
+    ///
+    /// 与内置检测逻辑叠加生效，任一命中即视为拦截。
+    on_detect_bot_challenge: Option<DetectCallback>,
+
+    /// 自定义访问被拒绝检测回调
+    ///
+    /// 与内置检测逻辑叠加生效，任一命中即视为拦截。
+    on_detect_access_denied: Option<DetectCallback>,
 }
 
 impl Collector {
@@ -379,6 +398,9 @@ impl Collector {
             allowed_domains: Vec::new(),
             disallowed_domains: Vec::new(),
             detect_bot_challenge: true,
+            detect_access_denied: true,
+            on_detect_bot_challenge: None,
+            on_detect_access_denied: None,
         }
     }
 
@@ -408,10 +430,81 @@ impl Collector {
     /// 启用/禁用机器人验证页面检测（默认开启）
     ///
     /// 启用时，HTTP 200 但内容为 CAPTCHA/challenge 的响应（如 PerimeterX、Cloudflare、DataDome）
-    /// 会被视为 `BotChallenge` 错误，触发 `on_error` 回调并返回 `Err`。
-    /// 关闭后跳过检测，直接当作正常响应处理。
+    /// 会被视为 [`CrawlError::BotChallenge`] 错误，触发 `on_error` 回调并返回 `Err`。
+    /// 关闭后跳过内置检测，直接当作正常响应处理。
+    ///
+    /// 仍会执行自定义 `on_detect_bot_challenge` 回调（如有注册）。
     pub fn set_detect_bot_challenge(&mut self, enabled: bool) {
         self.detect_bot_challenge = enabled;
+    }
+
+    /// 启用/禁用访问被拒绝检测（默认开启）
+    ///
+    /// 启用时，HTTP 403/401 等拒绝访问响应（如 Akamai CDN、Cloudflare WAF）会被视为
+    /// [`CrawlError::AccessDenied`] 错误，触发 `on_error` 回调并返回 `Err`。
+    /// 关闭后跳过内置检测，直接当作正常响应处理。
+    ///
+    /// 仍会执行自定义 `on_detect_access_denied` 回调（如有注册）。
+    pub fn set_detect_access_denied(&mut self, enabled: bool) {
+        self.detect_access_denied = enabled;
+    }
+
+    /// 自定义机器人验证页面检测逻辑
+    ///
+    /// 回调接收 `&Response`，返回 `true` 表示该响应为机器人验证页面。
+    ///
+    /// 与内置 `is_bot_challenge()` **叠加**生效：
+    /// 内置检测已覆盖主流反爬服务，此回调用于处理内置未覆盖的特殊场景。
+    ///
+    /// # 示例
+    ///
+    /// ```rust,no_run
+    /// use crawlkit::Collector;
+    ///
+    /// #[tokio::main]
+    /// async fn main() {
+    ///     let mut c = Collector::new();
+    ///     c.on_detect_bot_challenge(|resp| {
+    ///         let lower = resp.body.to_ascii_lowercase();
+    ///         lower.contains("please complete the verification")
+    ///     });
+    ///     c.visit("https://example.com").await.unwrap();
+    /// }
+    /// ```
+    pub fn on_detect_bot_challenge(
+        &mut self,
+        callback: impl Fn(&Response) -> bool + Send + Sync + 'static,
+    ) {
+        self.on_detect_bot_challenge = Some(Arc::new(callback));
+    }
+
+    /// 自定义访问被拒绝检测逻辑
+    ///
+    /// 回调接收 `&Response`，返回 `true` 表示该响应为访问被拒绝页面。
+    ///
+    /// 与内置 `is_access_denied()` **叠加**生效：
+    /// 内置检测已覆盖 Akamai/Cloudflare 等常见 CDN，此回调用于处理
+    /// 企业内部 WAF、自定义拦截页面等场景。
+    ///
+    /// # 示例
+    ///
+    /// ```rust,no_run
+    /// use crawlkit::Collector;
+    ///
+    /// #[tokio::main]
+    /// async fn main() {
+    ///     let mut c = Collector::new();
+    ///     c.on_detect_access_denied(|resp| {
+    ///         resp.status == 403 && resp.body.contains("blocked by security")
+    ///     });
+    ///     c.visit("https://example.com").await.unwrap();
+    /// }
+    /// ```
+    pub fn on_detect_access_denied(
+        &mut self,
+        callback: impl Fn(&Response) -> bool + Send + Sync + 'static,
+    ) {
+        self.on_detect_access_denied = Some(Arc::new(callback));
     }
 
     /// 自定义链接跟踪选择器
@@ -664,6 +757,49 @@ impl Collector {
                 cb(&err);
             }
             return Err(err);
+        }
+
+        // 检测访问被拒绝页面（HTTP 403/401 等）
+        if self.detect_access_denied && response.is_access_denied() {
+            let err = CrawlError::AccessDenied(format!(
+                "检测到访问被拒绝: {}",
+                response.url
+            ));
+            warn!(url = %response.url, "访问被拒绝页面，跳过后续处理");
+            if let Some(ref cb) = self.on_error {
+                cb(&err);
+            }
+            return Err(err);
+        }
+
+        // 自定义机器人验证检测
+        if let Some(ref cb) = self.on_detect_bot_challenge {
+            if cb(&response) {
+                let err = CrawlError::BotChallenge(format!(
+                    "自定义检测到机器人验证页面: {}",
+                    response.url
+                ));
+                warn!(url = %response.url, "自定义检测到机器人验证页面，跳过后续处理");
+                if let Some(ref err_cb) = self.on_error {
+                    err_cb(&err);
+                }
+                return Err(err);
+            }
+        }
+
+        // 自定义访问被拒绝检测
+        if let Some(ref cb) = self.on_detect_access_denied {
+            if cb(&response) {
+                let err = CrawlError::AccessDenied(format!(
+                    "自定义检测到访问被拒绝: {}",
+                    response.url
+                ));
+                warn!(url = %response.url, "自定义检测到访问被拒绝页面，跳过后续处理");
+                if let Some(ref err_cb) = self.on_error {
+                    err_cb(&err);
+                }
+                return Err(err);
+            }
         }
 
         // 标记已访问
@@ -970,6 +1106,9 @@ impl Clone for Collector {
             allowed_domains: self.allowed_domains.clone(),
             disallowed_domains: self.disallowed_domains.clone(),
             detect_bot_challenge: self.detect_bot_challenge,
+            detect_access_denied: self.detect_access_denied,
+            on_detect_bot_challenge: self.on_detect_bot_challenge.clone(),
+            on_detect_access_denied: self.on_detect_access_denied.clone(),
         }
     }
 }
@@ -1005,6 +1144,9 @@ impl Collector {
             allowed_domains: self.allowed_domains.clone(),
             disallowed_domains: self.disallowed_domains.clone(),
             detect_bot_challenge: self.detect_bot_challenge,
+            detect_access_denied: self.detect_access_denied,
+            on_detect_bot_challenge: None,
+            on_detect_access_denied: None,
         }
     }
 
@@ -1917,5 +2059,236 @@ mod tests {
         assert_eq!(results.len(), 2);
         assert_eq!(results[0], "/docs/:Docs");
         assert_eq!(results[1], "/articles/:Articles");
+    }
+
+    // ════════════════════════════════════════
+    //  Access Denied 检测测试
+    // ════════════════════════════════════════
+
+    /// 模拟返回403访问被拒绝页面的客户端
+    struct AccessDeniedMockClient;
+
+    #[async_trait]
+    impl HttpClient for AccessDeniedMockClient {
+        async fn get(&self, _url: &str, _headers: &HashMap<String, String>) -> Result<Response> {
+            Ok(Response {
+                url: "http://test.com".into(),
+                status: 403,
+                headers: HashMap::from([("content-type".into(), "text/html".into())]),
+                body: r#"<HTML><HEAD><TITLE>Access Denied</TITLE></HEAD>
+<BODY><H1>Access Denied</H1>
+You don't have permission to access this resource.
+Reference #123.456.789
+https://errors.edgesuite.net/123.456.789
+</BODY></HTML>"#
+                    .into(),
+            })
+        }
+
+        async fn post(
+            &self,
+            url: &str,
+            headers: &HashMap<String, String>,
+            _body: Vec<u8>,
+        ) -> Result<Response> {
+            self.get(url, headers).await
+        }
+
+        fn name(&self) -> &str {
+            "access-denied-mock"
+        }
+    }
+
+    #[tokio::test]
+    async fn test_access_denied_returns_error() {
+        let c = Collector::with_client(AccessDeniedMockClient);
+        let result = c.visit("http://test.com").await;
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        // 验证错误类型是 AccessDenied
+        let err_str = err.to_string();
+        assert!(
+            err_str.contains("访问被拒绝"),
+            "期望 AccessDenied 错误，实际: {}",
+            err_str
+        );
+    }
+
+    #[tokio::test]
+    async fn test_access_denied_triggers_on_error() {
+        let error_fired = Arc::new(AtomicUsize::new(0));
+        let count = Arc::clone(&error_fired);
+
+        let mut c = Collector::with_client(AccessDeniedMockClient);
+        c.on_error(move |_err| {
+            count.fetch_add(1, Ordering::Relaxed);
+        });
+
+        let _ = c.visit("http://test.com").await;
+        assert_eq!(error_fired.load(Ordering::Relaxed), 1);
+    }
+
+    #[tokio::test]
+    async fn test_access_denied_detection_disabled() {
+        let mut c = Collector::with_client(AccessDeniedMockClient);
+        c.set_detect_access_denied(false);
+
+        let result = c.visit("http://test.com").await;
+        // 关闭检测后，403 响应不会触发 AccessDenied 错误
+        assert!(result.is_ok());
+    }
+
+    // ════════════════════════════════════════
+    //  自定义检测回调测试
+    // ════════════════════════════════════════
+
+    /// 模拟返回包含自定义拦截特征的200页面
+    struct CustomChallengeMockClient;
+
+    #[async_trait]
+    impl HttpClient for CustomChallengeMockClient {
+        async fn get(&self, _url: &str, _headers: &HashMap<String, String>) -> Result<Response> {
+            Ok(Response {
+                url: "http://test.com".into(),
+                status: 200,
+                headers: HashMap::from([("content-type".into(), "text/html".into())]),
+                body: "<html><body>Please complete the verification</body></html>".into(),
+            })
+        }
+
+        async fn post(
+            &self,
+            url: &str,
+            headers: &HashMap<String, String>,
+            _body: Vec<u8>,
+        ) -> Result<Response> {
+            self.get(url, headers).await
+        }
+
+        fn name(&self) -> &str {
+            "custom-challenge-mock"
+        }
+    }
+
+    #[tokio::test]
+    async fn test_custom_bot_challenge_callback_triggers_error() {
+        let mut c = Collector::with_client(CustomChallengeMockClient);
+        c.on_detect_bot_challenge(|resp| {
+            let lower = resp.body.to_ascii_lowercase();
+            lower.contains("please complete the verification")
+        });
+
+        let result = c.visit("http://test.com").await;
+        assert!(result.is_err());
+        let err_str = result.unwrap_err().to_string();
+        assert!(
+            err_str.contains("机器人验证"),
+            "期望 BotChallenge 错误，实际: {}",
+            err_str
+        );
+    }
+
+    #[tokio::test]
+    async fn test_custom_access_denied_callback_triggers_error() {
+        let mut c = Collector::with_client(AccessDeniedMockClient);
+        c.set_detect_access_denied(false); // 关闭内置检测，使用自定义回调
+        c.on_detect_access_denied(|resp| {
+            resp.status == 403 && resp.body.contains("edgesuite.net")
+        });
+
+        let result = c.visit("http://test.com").await;
+        assert!(result.is_err());
+        let err_str = result.unwrap_err().to_string();
+        assert!(
+            err_str.contains("访问被拒绝"),
+            "期望 AccessDenied 错误，实际: {}",
+            err_str
+        );
+    }
+
+    #[tokio::test]
+    async fn test_custom_callback_not_triggered_for_normal_content() {
+        let mut c = Collector::with_client(MockClient::ok("<html><body>Normal content</body></html>"));
+        c.on_detect_bot_challenge(|resp| resp.body.contains("captcha"));
+        c.on_detect_access_denied(|resp| resp.body.contains("blocked"));
+
+        let result = c.visit("http://test.com").await;
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_on_error_fires_for_custom_bot_challenge() {
+        let error_fired = Arc::new(AtomicUsize::new(0));
+        let count = Arc::clone(&error_fired);
+
+        let mut c = Collector::with_client(CustomChallengeMockClient);
+        c.on_detect_bot_challenge(|resp| {
+            let lower = resp.body.to_ascii_lowercase();
+            lower.contains("please complete the verification")
+        });
+        c.on_error(move |_err| {
+            count.fetch_add(1, Ordering::Relaxed);
+        });
+
+        let _ = c.visit("http://test.com").await;
+        assert_eq!(error_fired.load(Ordering::Relaxed), 1);
+    }
+
+    // ════════════════════════════════════════
+    //  Bot Challenge 检测测试
+    // ════════════════════════════════════════
+
+    /// 模拟返回机器人验证页面的客户端
+    struct BotChallengeMockClient;
+
+    #[async_trait]
+    impl HttpClient for BotChallengeMockClient {
+        async fn get(&self, _url: &str, _headers: &HashMap<String, String>) -> Result<Response> {
+            Ok(Response {
+                url: "http://test.com".into(),
+                status: 200,
+                headers: HashMap::from([("content-type".into(), "text/html".into())]),
+                body: r#"<html><body>
+<script>window._pxUuid = "abc123";</script>
+</body></html>"#
+                    .into(),
+            })
+        }
+
+        async fn post(
+            &self,
+            url: &str,
+            headers: &HashMap<String, String>,
+            _body: Vec<u8>,
+        ) -> Result<Response> {
+            self.get(url, headers).await
+        }
+
+        fn name(&self) -> &str {
+            "bot-challenge-mock"
+        }
+    }
+
+    #[tokio::test]
+    async fn test_bot_challenge_returns_error() {
+        let c = Collector::with_client(BotChallengeMockClient);
+        let result = c.visit("http://test.com").await;
+        assert!(result.is_err());
+        let err_str = result.unwrap_err().to_string();
+        assert!(
+            err_str.contains("机器人验证"),
+            "期望 BotChallenge 错误，实际: {}",
+            err_str
+        );
+    }
+
+    #[tokio::test]
+    async fn test_bot_challenge_detection_disabled() {
+        let mut c = Collector::with_client(BotChallengeMockClient);
+        c.set_detect_bot_challenge(false);
+
+        let result = c.visit("http://test.com").await;
+        // 关闭检测后，机器人验证页面不会触发错误
+        assert!(result.is_ok());
     }
 }
